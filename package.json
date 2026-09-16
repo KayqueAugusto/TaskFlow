@@ -1,0 +1,56 @@
+{
+  "name": "taskflow-vue",
+  "version": "2.0.0-prototype",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:web": "vite",
+    "dev:api": "tsx watch server/index.ts",
+    "build": "pnpm typecheck && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc -b && tsc -p tsconfig.server.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:integration": "vitest run tests/integration",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:generate": "prisma generate"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/rate-limit": "^11.2.0",
+    "@prisma/client": "^6.19.0",
+    "bcryptjs": "^3.0.2",
+    "fastify": "^5.12.3",
+    "lucide-vue-next": "^0.468.0",
+    "pinia": "^3.0.3",
+    "vue": "^3.5.22",
+    "vue-router": "^4.6.3",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^22.19.19",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "@vue/eslint-config-typescript": "^14.6.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-vue": "^10.5.1",
+    "prisma": "6.19.0",
+    "tsx": "4.22.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.1",
+    "vite": "^7.1.7",
+    "vitest": "3.2.4",
+    "vue-eslint-parser": "^10.2.0",
+    "vue-tsc": "^3.1.1"
+  },
+  "packageManager": "pnpm@11.25.0"
+}
