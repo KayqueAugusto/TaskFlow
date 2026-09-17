@@ -125,4 +125,6 @@ Consulte [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) para riscos e [docs/ARCHITECTURE
 
 Login, cadastro, logout, recuperação de sessão (`GET /api/auth/me`) e atualização básica de perfil usam agora a API real. A sessão usa cookie HttpOnly persistido no banco, com expiração de sete dias e revogação no logout; nenhum token de autenticação é gravado no `localStorage`. O frontend mantém apenas um contexto local transitório para que projetos/tarefas legados continuem funcionando.
 
-Para PostgreSQL local, execute `docker compose up -d`, `pnpm prisma:migrate` e `pnpm prisma:seed`. Neste ambiente Docker não está instalado; há um PostgreSQL em `localhost:5432`, mas as credenciais disponíveis não correspondem às de desenvolvimento (`P1000`), então nenhuma migration foi aplicada.
+Para PostgreSQL local, execute `docker compose up -d`, `pnpm prisma:migrate` e `pnpm prisma:seed`. O PostgreSQL do Compose usa `localhost:5433` e nunca interfere no serviço Windows em `localhost:5432`. O script de inicialização cria `taskflow_test` de forma idempotente.
+
+O `.env` local usa `DATABASE_URL` em `5433` e `DATABASE_URL_TEST` em `5433/taskflow_test`; ele é ignorado pelo Git. O arquivo `.env.example` contém apenas credenciais de desenvolvimento.

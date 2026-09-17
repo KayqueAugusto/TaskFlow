@@ -35,6 +35,10 @@ Não haverá sincronização bidirecional: ela produziria conflitos e duplicaç�
 
 O router consulta `/auth/me` no primeiro guard e o App inicializa o `AuthStore`. A store de domínio recebe apenas o usuário seguro para criar um contexto local transitório; ela não decide se a sessão é válida. Ao migrar projetos/tarefas, esse bridge deverá ser removido.
 
+## PostgreSQL local isolado
+
+O Compose publica `5433:5432`, mantendo o serviço PostgreSQL Windows em `5432` completamente fora do fluxo. O volume `taskflow_postgres_data` é persistente. O script `docker/postgres/init/01-create-test-db.sh` cria `taskflow_test` apenas na inicialização do volume e é idempotente; migrations continuam sendo a fonte versionada do schema. Neste ambiente Docker não está instalado, portanto a execução do Compose e a migration real permanecem pendentes.
+
 1. Repositórios Prisma, autenticação, cookies e autorização por workspace.
 2. Workspaces/memberships/convites, incluindo último admin e bloqueio.
 3. Projetos e tarefas com integração incremental da UI.

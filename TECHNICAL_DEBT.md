@@ -121,3 +121,11 @@ O protótipo agora utiliza build estático do Vite para hospedagem no Sites.
 - Simulado: OAuth Google, recuperação de senha, convites por e-mail e upload externo.
 - Ambiente: Node 22.12.0 (requisito 22.13+), Docker/PostgreSQL/Git ausentes; migration/seed reais e testes contra PostgreSQL não puderam ser executados.
 - Verificação adicional: `prisma generate` passou; `prisma migrate deploy` encontrou um PostgreSQL em `localhost:5432`, mas falhou com `P1000` (credenciais locais não correspondem ao `.env.example`). Nenhum banco foi alterado.
+
+## Infraestrutura PostgreSQL — 2026-09-16
+
+- Corrigido o conflito de portas: Compose expõe `5433:5432`; o PostgreSQL Windows em `5432` não é parado, alterado ou acessado pelo Compose.
+- Adicionado banco `taskflow_test` via script de inicialização idempotente e `DATABASE_URL_TEST` separado.
+- `.env` local foi criado com a porta `5433` e permanece ignorado; não contém credencial de produção.
+- Pendente neste ambiente: Docker não está instalado, portanto containers, migrations, seed duplo e integração PostgreSQL real ainda precisam ser executados localmente.
+- Verificação de fechamento: a porta `5433` permaneceu livre e a porta Windows `5432` continuou ativa. `docker compose up -d` não pôde executar (Docker ausente); `prisma migrate deploy` em `5433` retornou `P1001` porque nenhum container TaskFlow estava escutando. Nenhum volume foi removido.
