@@ -3,7 +3,6 @@ import { defineStore } from "pinia";
 import type { Account, Invite, Member, Membership, Prefs, Project, Role, Session, Task, Workspace } from "../domain/models";
 import { seedAccounts, seedMembers, seedMemberships, seedProjects, seedTasks, seedWorkspaces } from "../domain/seeds";
 import { browserDataRepository as repository, storageKeys } from "../services/storage";
-import { apiRequest } from "../services/api";
 
 export type { Account, Invite, Member, Membership, Prefs, Priority, Project, Role, Session, Status, Task, Workspace } from "../domain/models";
 
@@ -50,17 +49,24 @@ export const useTaskFlowStore=defineStore("taskflow",()=>{
     session.value={accountId:account.id,memberId:account.id,workspaceId:membership.workspaceId,name:account.name,email:account.email,role:membership.role,initials:account.initials};persist();
   }
   function demo(role:Role){const account=accounts.value.find(a=>a.id===(role==="Administrador"?1:2))!;login(account.email,"123456")}
-  function logout(){void apiRequest("/auth/logout",{method:"POST"}).catch(()=>undefined);session.value=null;repository.remove(storageKeys.localContext)}
+  function logout(){session.value=null;repository.remove(storageKeys.localContext)}
 
   function adoptAuthenticatedUser(user:{id:string;email:string;name:string;job:string|null;avatarKey:string|null;workspaceId:string;workspaceName:string;role:"OWNER"|"ADMIN"|"MEMBER"}){
     const known=user.email.toLowerCase()==="kayque@taskflow.demo"?1:user.email.toLowerCase()==="marina@taskflow.demo"?2:Math.abs([...user.id].reduce((hash,char)=>(hash*31+char.charCodeAt(0))|0,7))||3;
     const localWorkspace=known<=2?1:known+100000;
     const role=user.role==="OWNER"||user.role==="ADMIN"?"Administrador":"Membro" as Role;
-    if(!accounts.value.some(account=>account.id===known))accounts.value.push({id:known,name:user.name,email:user.email,password:"",job:user.job||"Profissional",initials:initials(user.name),avatar:user.avatarKey||undefined});
+    const account=accounts.value.find(account=>account.id===known);
+    if(account)Object.assign(account,{name:user.name,email:user.email,job:user.job||"Profissional",initials:initials(user.name),avatar:user.avatarKey||undefined});
+    else accounts.value.push({id:known,name:user.name,email:user.email,password:"",job:user.job||"Profissional",initials:initials(user.name),avatar:user.avatarKey||undefined});
     if(!workspaces.value.some(workspace=>workspace.id===localWorkspace))workspaces.value.push({id:localWorkspace,name:user.workspaceName,ownerId:known});
     if(!memberships.value.some(membership=>membership.accountId===known&&membership.workspaceId===localWorkspace))memberships.value.push({accountId:known,workspaceId:localWorkspace,role});
     session.value={accountId:known,memberId:known,workspaceId:localWorkspace,name:user.name,email:user.email,role,initials:initials(user.name)};
-    loadWorkspace(localWorkspace);persist();
+    loadWorkspace(localWorkspace);
+    const member=members.value.find(member=>member.id===known);
+    const profile={name:user.name,email:user.email,job:user.job||"Profissional",role,initials:initials(user.name),avatar:user.avatarKey||undefined};
+    if(member)Object.assign(member,profile);
+    else members.value.push({id:known,...profile,color:"purple"});
+    persist();
   }
   function register(data:{name:string;email:string;job:string;password:string}){
     if(accounts.value.some(a=>a.email.toLowerCase()===data.email.toLowerCase()))throw new Error("Este e-mail já está cadastrado.");
@@ -78,6 +84,5 @@ export const useTaskFlowStore=defineStore("taskflow",()=>{
   function saveProject(project:Project){const index=projects.value.findIndex(p=>p.id===project.id);if(index>=0)projects.value[index]=project;else projects.value.unshift(project)}
   function saveMember(member:Member){const index=members.value.findIndex(m=>m.id===member.id);if(index>=0)members.value[index]=member;else members.value.push(member)}
   function removeMember(id:number){if(!session.value)return;members.value=members.value.filter(m=>m.id!==id);memberships.value=memberships.value.filter(m=>!(m.accountId===id&&m.workspaceId===workspaceId.value));tasks.value=tasks.value.map(t=>t.assigneeId===id?{...t,assigneeId:session.value!.memberId}:t);projects.value=projects.value.map(p=>({...p,members:p.members.filter(mid=>mid!==id)}))}
-  function updateProfile(name:string,job:string,avatar?:string){if(!session.value)return;void apiRequest("/auth/me",{method:"PATCH",body:JSON.stringify({name,job,avatarKey:avatar?.startsWith("suggested:")?avatar:null})}).catch(()=>undefined);const account=accounts.value.find(a=>a.id===session.value!.accountId);if(account){account.name=name;account.job=job;account.avatar=avatar;account.initials=initials(name)};members.value=members.value.map(m=>m.id===session.value!.accountId?{...m,name,job,avatar,initials:initials(name)}:m);session.value={...session.value,name,initials:initials(name)};persist()}
-  return{session,accounts,workspaces,memberships,invites,tasks,projects,members,prefs,admin,visibleTasks,visibleProjects,currentWorkspace,login,demo,logout,adoptAuthenticatedUser,register,switchWorkspace,createWorkspace,saveTask,removeTask,saveProject,saveMember,removeMember,updateProfile,persist};
+  return{session,accounts,workspaces,memberships,invites,tasks,projects,members,prefs,admin,visibleTasks,visibleProjects,currentWorkspace,login,demo,logout,adoptAuthenticatedUser,register,switchWorkspace,createWorkspace,saveTask,removeTask,saveProject,saveMember,removeMember,persist};
 });

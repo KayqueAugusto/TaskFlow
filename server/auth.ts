@@ -10,7 +10,7 @@ export const registerSchema=z.object({
   password:z.string().min(8).max(128)
 });
 export const loginSchema=z.object({email:z.string().trim().email().max(254),password:z.string().min(1).max(128)});
-export const profileSchema=z.object({name:z.string().trim().min(2).max(120),job:z.string().trim().min(2).max(120),avatarKey:z.string().max(200).nullable().optional()});
+export const profileSchema=z.object({name:z.string().trim().min(2).max(120),job:z.string().trim().min(2).max(120),avatarKey:z.string().max(900_000).refine(value=>value.startsWith("suggested:")||/^data:image\/(png|jpeg|webp|gif);base64,/.test(value)).nullable().optional()});
 export type SafeUser={id:string;email:string;name:string;job:string|null;avatarKey:string|null;workspaceId:string;workspaceName:string;role:"OWNER"|"ADMIN"|"MEMBER"};
 type UserRecord=SafeUser&{passwordHash:string;sessionTokens:Set<string>};
 export interface AuthRepository {

@@ -2,12 +2,9 @@ import { createRouter, createWebHistory } from "vue-router";
 import LoginView from "./views/LoginView.vue";
 import RegisterView from "./views/RegisterView.vue";
 import WorkspaceView from "./views/WorkspaceView.vue";
-import { apiRequest } from "./services/api";
-import type { AuthUser } from "./stores/auth";
+import { useAuthStore } from "./stores/auth";
 import { canNavigateRoute } from "./router-guards";
 
-let sessionChecked=false;
-let authenticatedUser:AuthUser|null=null;
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -28,14 +25,9 @@ const router = createRouter({
 });
 
 router.beforeEach(async (to) => {
-  if(!sessionChecked||to.meta.public){
-    try { authenticatedUser=(await apiRequest<{user:AuthUser}>("/auth/me")).user; }
-    catch { authenticatedUser=null; }
-    sessionChecked=true;
-  }
-  return canNavigateRoute(to.meta,authenticatedUser);
+  const auth=useAuthStore();
+  if(auth.state==="idle")await auth.bootstrap();
+  return canNavigateRoute(to.meta,auth.isAuthenticated?auth.user:null);
 });
-
-export function setAuthenticatedRouteUser(user:AuthUser|null){authenticatedUser=user;sessionChecked=true}
 
 export default router;

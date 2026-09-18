@@ -9,7 +9,7 @@ import { AuthError, AuthService, InMemoryAuthRepository, SESSION_COOKIE } from "
 
 export function buildApp(environment:Environment,authService=new AuthService(new InMemoryAuthRepository())) {
   const app=Fastify({logger:environment.NODE_ENV!=="test"});
-  app.register(cors,{origin:environment.WEB_ORIGIN,credentials:true});
+  app.register(cors,{origin:environment.WEB_ORIGIN,credentials:true,methods:["GET","HEAD","POST","PATCH"]});
   app.register(cookie);
   app.register(rateLimit,{max:100,timeWindow:"1 minute"});
   app.get("/api/health",async()=>({data:{status:"ok",service:"taskflow-api"}}));

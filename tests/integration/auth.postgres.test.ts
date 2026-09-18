@@ -23,10 +23,14 @@ describePostgres("autenticação com PostgreSQL real",()=>{
     const setCookie=register.headers["set-cookie"],cookie=(Array.isArray(setCookie)?setCookie[0]:setCookie)?.split(";")[0];expect(cookie).toBeTruthy();
     const user=await prisma!.user.findUnique({where:{email:"pg@example.com"},include:{credential:true,profile:true,memberships:true,sessions:true}});
     expect(user?.credential?.passwordHash).toBeTruthy();expect(user?.profile?.name).toBe("Integração PostgreSQL");expect(user?.memberships[0]?.role).toBe("OWNER");expect(user?.sessions).toHaveLength(1);
-    const me=await app.inject({method:"GET",url:"/api/auth/me",headers:{cookie}});expect(me.statusCode).toBe(200);
+    const me=await app.inject({method:"GET",url:"/api/auth/me",headers:{cookie}});expect(me.statusCode).toBe(200);expect(me.json().data.user.name).toBe("Integração PostgreSQL");
+    const profile=await app.inject({method:"PATCH",url:"/api/auth/me",headers:{cookie},payload:{name:"caio",job:"Designer",avatarKey:"suggested:1"}});
+    expect(profile.statusCode).toBe(200);expect(profile.json().data.user.name).toBe("caio");
+    expect((await app.inject({method:"GET",url:"/api/auth/me",headers:{cookie}})).json().data.user.name).toBe("caio");
     const login=await app.inject({method:"POST",url:"/api/auth/login",payload:{email:"PG@EXAMPLE.COM",password:"senha-segura"}});expect(login.statusCode).toBe(200);
     const logout=await app.inject({method:"POST",url:"/api/auth/logout",headers:{cookie}});expect(logout.statusCode).toBe(200);
     expect((await app.inject({method:"GET",url:"/api/auth/me",headers:{cookie}})).statusCode).toBe(401);
+    expect((await app.inject({method:"POST",url:"/api/auth/logout",headers:{cookie}})).statusCode).toBe(200);
     expect((await app.inject({method:"POST",url:"/api/auth/login",payload:{email:"pg@example.com",password:"errada"}})).statusCode).toBe(401);
   });
 });

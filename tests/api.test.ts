@@ -15,6 +15,13 @@ describe("API",()=>{
     expect(response.json().error.code).toBe("NOT_FOUND");
     await app.close();
   });
+  it("permite PATCH do perfil a partir do frontend",async()=>{
+    const app=buildApp(environment);
+    const response=await app.inject({method:"OPTIONS",url:"/api/auth/me",headers:{origin:environment.WEB_ORIGIN,"access-control-request-method":"PATCH","access-control-request-headers":"content-type"}});
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-methods"]).toContain("PATCH");
+    await app.close();
+  });
   it("executa cadastro, recuperação, logout e revogação por cookie",async()=>{
     const app=buildApp(environment);
     const register=await app.inject({method:"POST",url:"/api/auth/register",payload:{name:"API Teste",email:"api@example.com",job:"QA",password:"senha-segura"}});
