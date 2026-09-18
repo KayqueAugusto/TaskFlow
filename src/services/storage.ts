@@ -9,6 +9,7 @@ export const storageKeys = {
   version:"taskflow_storage_version",
   session:"taskflow_session",
   localContext:"taskflow_local_context",
+  activeWorkspace:"taskflow_active_workspace_id",
   accounts:"taskflow_accounts",
   workspaces:"taskflow_workspaces",
   memberships:"taskflow_memberships",

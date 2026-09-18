@@ -1,24 +1,23 @@
-# TaskFlow — Vue 3 + API em preparação
+# TaskFlow — Vue 3 + Fastify + PostgreSQL
 
-Aplicação de gestão de tarefas, projetos, equipes e workspaces. A interface aprovada permanece em Vue 3; a primeira fundação de servidor e banco foi adicionada sem conectar os fluxos de negócio locais à API antes de existirem autenticação e autorização reais.
+Aplicação de gestão de tarefas, projetos, equipes e workspaces. Autenticação, workspaces, memberships e convites usam Fastify, Prisma e PostgreSQL; a interface Vue aprovada permanece.
 
 ## Estado real
 
-- **Implementado e integrado:** interface responsiva, navegação, Pinia, persistência local compatível, adaptador versionado de armazenamento, endpoint `GET /api/health`, contratos iniciais, schema/migration/seed PostgreSQL e testes da fundação.
-- **Parcialmente implementado:** API (infraestrutura e health, sem endpoints de negócio), banco (artefatos prontos, sem instância aplicada neste ambiente) e separação da camada de dados.
-- **Simulado no frontend:** login/cadastro local, sessão e permissões client-side, contas demo, workspaces, convites, projetos, tarefas, membros, notificações e perfil.
-- **Não implementado:** autenticação e autorização reais, integração web/API, OAuth Google, e-mail, recuperação de senha, upload externo e E2E.
+- **Integrado:** cadastro, login, sessão, perfil, logout, workspaces, membros, papéis, bloqueio, transferência de propriedade e convites persistidos. A API autoriza cada operação pela membership ativa.
+- **Local:** projetos, tarefas, calendário, relatórios derivados, preferências visuais e notificações de tarefas. O ID do workspace ativo é apenas uma preferência local validada pela API.
+- **Pendente:** envio de e-mail, OAuth Google, recuperação de senha, upload externo e migração de projetos/tarefas.
 
-Nenhum fluxo local deve ser interpretado como segurança de produção. As senhas em texto puro existem apenas no adaptador legado do protótipo; o seed do futuro banco usa bcrypt.
+Projetos e tarefas locais ainda não são colaboração entre dispositivos. O servidor é a fonte de verdade para identidade, workspaces, membros e convites.
 
 ## Stack
 
 - Web: Vue 3, Composition API, TypeScript, Vite, Vue Router, Pinia, Lucide Vue e CSS próprio.
-- API preparada: Node.js, TypeScript, Fastify, Zod, CORS e rate limiting.
-- Dados preparados: PostgreSQL e Prisma ORM.
+- API: Node.js, TypeScript, Fastify, Zod, CORS e rate limiting.
+- Dados: PostgreSQL e Prisma ORM.
 - Qualidade: ESLint, vue-tsc, TypeScript, Vitest e injeção Fastify para testes HTTP.
 
-Fastify foi escolhido por tipagem, baixo overhead e teste HTTP sem abrir porta. Prisma foi escolhido por migrations legíveis, relações e client tipado. Essa fundação não autoriza o frontend a confiar no backend até endpoints com sessão e autorização por membership serem implementados.
+Fastify permite testes HTTP sem abrir porta; Prisma mantém migrations e relações tipadas. A autorização é verificada no servidor.
 
 ## Estrutura
 
@@ -45,14 +44,15 @@ docs/ARCHITECTURE.md decisões e plano de migração
 pnpm install
 ```
 
-O ambiente desta auditoria tinha Node 22.12.0; os comandos funcionaram com aviso, mas a versão declarada deve ser respeitada em desenvolvimento e CI.
+Use a versão de Node indicada em `package.json`.
 
 ## Configuração
 
 Copie `.env.example` para `.env` e ajuste somente valores locais. Nunca versione `.env` ou segredos.
 
 ```env
-DATABASE_URL=postgresql://taskflow:taskflow@localhost:5432/taskflow
+DATABASE_URL=postgresql://taskflow:taskflow_dev_only@localhost:5433/taskflow
+DATABASE_URL_TEST=postgresql://taskflow:taskflow_dev_only@localhost:5433/taskflow_test
 API_HOST=127.0.0.1
 API_PORT=3001
 WEB_ORIGIN=http://localhost:5173
@@ -76,7 +76,7 @@ pnpm dev:web
 pnpm dev:api
 ```
 
-`pnpm dev` continua iniciando apenas o frontend, preservando o fluxo anterior. A API oferece somente `GET /api/health`; a UI ainda usa o adaptador local.
+`pnpm dev` inicia apenas o frontend. Execute a API em outro terminal para os fluxos integrados.
 
 ## Banco, migration e seed
 
@@ -86,7 +86,7 @@ pnpm prisma:migrate
 pnpm prisma:seed
 ```
 
-O schema cobre usuários, credenciais, perfis, workspaces, memberships, papéis/bloqueio, convites, projetos, tarefas, responsáveis, comentários, atividades, notificações, preferências e sessões revogáveis. A primeira migration está em `prisma/migrations/20260915000100_initial/`.
+O schema cobre usuários, perfis, workspaces, memberships, convites, projetos/tarefas futuros e sessões. A migration `20260918010438_workspace_member_roles_and_invitation_lifecycle` adiciona função específica da membership e estado de convite revogado. A migration preexistente `20260917023523_pnpm_prisma_seed` foi preservada sem alteração; seu SQL recria regras de cascata de chaves estrangeiras e adiciona índices para proprietário de workspace e comentários.
 
 Contas locais e de seed de desenvolvimento:
 
@@ -111,13 +111,13 @@ pnpm build
 
 ## Rotas atuais
 
-`/login`, `/cadastro`, `/dashboard`, `/tarefas`, `/projetos`, `/projetos/:id`, `/calendario`, `/equipe`, `/equipe/:id/atividades`, `/relatorios` e `/configuracoes`.
+`/login`, `/cadastro`, `/invite/:token`, `/dashboard`, `/tarefas`, `/projetos`, `/projetos/:id`, `/calendario`, `/equipe`, `/equipe/:id/atividades`, `/relatorios` e `/configuracoes`.
 
 ## Persistência e compatibilidade
 
-O adaptador mantém as chaves legadas `taskflow_session`, `taskflow_accounts`, `taskflow_workspaces`, `taskflow_memberships`, `taskflow_invites`, `taskflow_tasks_{workspaceId}`, `taskflow_projects_{workspaceId}`, `taskflow_members_{workspaceId}`, `taskflow_prefs_{accountId}` e `taskflow_remember_email`. Novas gravações registram `taskflow_storage_version=1`. JSON inválido é ignorado com fallback, sem remoção automática.
+O adaptador ainda lê chaves legadas para projetos/tarefas, mas workspaces, memberships e convites não são mais gravados nele. `taskflow_active_workspace_id` guarda apenas a preferência de seleção, sempre validada pelo servidor. Dados locais antigos não são importados automaticamente.
 
-Dados de negócio não são importados automaticamente para o PostgreSQL. A estratégia recomendada é criar um importador explícito e idempotente depois que autenticação e endpoints existirem; até lá não há duplicação silenciosa entre navegador e banco.
+Exclusão de workspace está indisponível (`409`) até existir uma política segura para projetos/tarefas. Convites geram links copiáveis, sem envio de e-mail. Próxima fase: migrar projetos, tarefas e seus relacionamentos para o PostgreSQL.
 
 Consulte [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) para riscos e [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para decisões.
 

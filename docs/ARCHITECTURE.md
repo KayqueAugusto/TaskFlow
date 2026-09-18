@@ -1,5 +1,13 @@
 # Arquitetura e decisões
 
+## Integração de workspaces e membros — 2026-09-18
+
+`WorkspaceService` consulta memberships PostgreSQL a partir da identidade da sessão. Cada leitura e mutação verifica membership ativa no servidor; bloqueio impede acesso ao workspace sem encerrar a conta pessoal. `OWNER` pode transferir propriedade em transação; `ADMIN` gerencia apenas membros comuns; `MEMBER` apenas consulta. Perfil pessoal e função no workspace são campos distintos. Exclusão de workspace retorna `409` até migrar projetos/tarefas e definir a política de dados relacionados.
+
+Convites persistem hash SHA-256 de token aleatório de 32 bytes, e-mail de destino, papel, expiração e estado. Aceitação autenticada verifica e-mail e cria membership em transação; o link usa `WEB_ORIGIN`. O servidor não envia e-mail. A store `workspaces` busca lista, membros e convites da API e conserva apenas o ID selecionado no navegador. A store legada continua servindo projetos/tarefas locais, projetando membros reais para os componentes existentes. A próxima fase deve migrar projetos/tarefas e remover essa ponte.
+
+Migration nova: `20260918010438_workspace_member_roles_and_invitation_lifecycle`. A migration preexistente `20260917023523_pnpm_prisma_seed` permanece intocada: ajusta ações de exclusão de chaves estrangeiras e cria índices `Workspace_ownerId_idx` e `Comment_taskId_createdAt_idx`.
+
 ## Baseline auditada em 2026-09-15
 
 O frontend é uma SPA Vue 3 compacta. `WorkspaceView` orquestra páginas e modais, enquanto a store Pinia mantém todo o domínio. Antes desta entrega, store, router e login acessavam `localStorage` diretamente; modelos, seeds, autenticação local e regras também viviam na store. Não havia backend, banco ou testes.

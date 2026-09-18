@@ -3,7 +3,7 @@ import { defineStore } from "pinia";
 import { apiRequest, ApiError } from "../services/api.js";
 
 export type AuthState="idle"|"loading"|"authenticated"|"unauthenticated"|"error";
-export interface AuthUser { id:string;email:string;name:string;job:string|null;avatarKey:string|null;workspaceId:string;workspaceName:string;role:"OWNER"|"ADMIN"|"MEMBER" }
+export interface AuthUser { id:string;email:string;name:string;job:string|null;avatarKey:string|null;workspaceId:string|null;workspaceName:string|null;role:"OWNER"|"ADMIN"|"MEMBER"|null }
 const apiMessage=(value:unknown,fallback:string)=>value instanceof ApiError?value.message:fallback;
 
 export const useAuthStore=defineStore("auth",()=>{

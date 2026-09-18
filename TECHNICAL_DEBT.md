@@ -129,3 +129,6 @@ O protótipo agora utiliza build estático do Vite para hospedagem no Sites.
 - `.env` local foi criado com a porta `5433` e permanece ignorado; não contém credencial de produção.
 - Pendente neste ambiente: Docker não está instalado, portanto containers, migrations, seed duplo e integração PostgreSQL real ainda precisam ser executados localmente.
 - Verificação de fechamento: a porta `5433` permaneceu livre e a porta Windows `5432` continuou ativa. `docker compose up -d` não pôde executar (Docker ausente); `prisma migrate deploy` em `5433` retornou `P1001` porque nenhum container TaskFlow estava escutando. Nenhum volume foi removido.
+## Situação atual — 2026-09-18
+
+Autenticação, workspaces, memberships, permissões e convites agora usam Fastify e PostgreSQL. As linhas antigas abaixo registram a auditoria histórica do protótipo e não descrevem o estado atual desses módulos. O convite é persistido, mas o envio de e-mail ainda não existe: o link deve ser copiado. A exclusão de workspace foi desabilitada até a migração de projetos e tarefas. Esses dois agregados, calendário, relatórios derivados e notificações ainda usam dados locais e podem divergir entre dispositivos. A próxima fase recomendada é migrar projetos/tarefas para API, preservar vínculos com memberships e então eliminar as representações legadas da store.

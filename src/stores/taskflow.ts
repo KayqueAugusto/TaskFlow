@@ -3,11 +3,16 @@ import { defineStore } from "pinia";
 import type { Account, Invite, Member, Membership, Prefs, Project, Role, Session, Task, Workspace } from "../domain/models";
 import { seedAccounts, seedMembers, seedMemberships, seedProjects, seedTasks, seedWorkspaces } from "../domain/seeds";
 import { browserDataRepository as repository, storageKeys } from "../services/storage";
+import type { AuthUser } from "./auth";
+import type { MemberRecord, WorkspaceRecord } from "./workspaces";
 
 export type { Account, Invite, Member, Membership, Prefs, Priority, Project, Role, Session, Status, Task, Workspace } from "../domain/models";
 
 const read=<T>(key:string,fallback:T):T=>repository.read(key,fallback);
 const initials=(name:string)=>name.split(" ").filter(Boolean).slice(0,2).map(v=>v[0]).join("").toUpperCase();
+const numericId=(value:string)=>Math.abs([...value].reduce((hash,char)=>(hash*31+char.charCodeAt(0))|0,7))||3;
+export const legacyMemberId=(userId:string,email:string)=>email.toLowerCase()==="kayque@taskflow.demo"?1:email.toLowerCase()==="marina@taskflow.demo"?2:numericId(userId);
+const legacyWorkspaceId=(id:string)=>id==="00000000-0000-4000-8000-000000000101"?1:numericId(id)+100000;
 
 export const useTaskFlowStore=defineStore("taskflow",()=>{
   const session=ref<Session|null>(read(storageKeys.localContext,null));
@@ -27,13 +32,9 @@ export const useTaskFlowStore=defineStore("taskflow",()=>{
 
   const persist=()=>{
     if(session.value)repository.write(storageKeys.localContext,session.value);
-    repository.write(storageKeys.accounts,accounts.value);
-    repository.write(storageKeys.workspaces,workspaces.value);
-    repository.write(storageKeys.memberships,memberships.value);
     repository.write(storageKeys.invites,invites.value);
     repository.write(storageKeys.tasks(workspaceId.value),tasks.value);
     repository.write(storageKeys.projects(workspaceId.value),projects.value);
-    repository.write(storageKeys.members(workspaceId.value),members.value);
     if(session.value)repository.write(storageKeys.prefs(session.value.accountId),prefs.value);
   };
   watch([tasks,projects,members,accounts,workspaces,memberships,invites,prefs],persist,{deep:true});
@@ -51,8 +52,9 @@ export const useTaskFlowStore=defineStore("taskflow",()=>{
   function demo(role:Role){const account=accounts.value.find(a=>a.id===(role==="Administrador"?1:2))!;login(account.email,"123456")}
   function logout(){session.value=null;repository.remove(storageKeys.localContext)}
 
-  function adoptAuthenticatedUser(user:{id:string;email:string;name:string;job:string|null;avatarKey:string|null;workspaceId:string;workspaceName:string;role:"OWNER"|"ADMIN"|"MEMBER"}){
-    const known=user.email.toLowerCase()==="kayque@taskflow.demo"?1:user.email.toLowerCase()==="marina@taskflow.demo"?2:Math.abs([...user.id].reduce((hash,char)=>(hash*31+char.charCodeAt(0))|0,7))||3;
+  function adoptAuthenticatedUser(user:AuthUser){
+    if(!user.workspaceId||!user.workspaceName||!user.role){logout();return}
+    const known=legacyMemberId(user.id,user.email);
     const localWorkspace=known<=2?1:known+100000;
     const role=user.role==="OWNER"||user.role==="ADMIN"?"Administrador":"Membro" as Role;
     const account=accounts.value.find(account=>account.id===known);
@@ -66,6 +68,18 @@ export const useTaskFlowStore=defineStore("taskflow",()=>{
     const profile={name:user.name,email:user.email,job:user.job||"Profissional",role,initials:initials(user.name),avatar:user.avatarKey||undefined};
     if(member)Object.assign(member,profile);
     else members.value.push({id:known,...profile,color:"purple"});
+    persist();
+  }
+  function adoptRemoteWorkspace(user:AuthUser,workspace:WorkspaceRecord,remoteMembers:MemberRecord[]){
+    const accountId=legacyMemberId(user.id,user.email),id=legacyWorkspaceId(workspace.id),role:Role=workspace.role==="MEMBER"?"Membro":"Administrador";
+    const account=accounts.value.find(item=>item.id===accountId);
+    if(account)Object.assign(account,{name:user.name,email:user.email,job:user.job||"Profissional",avatar:user.avatarKey||undefined,initials:initials(user.name)});
+    else accounts.value.push({id:accountId,name:user.name,email:user.email,password:"",job:user.job||"Profissional",avatar:user.avatarKey||undefined,initials:initials(user.name)});
+    const existing=workspaces.value.find(item=>item.id===id);
+    if(existing)existing.name=workspace.name;else workspaces.value.push({id,name:workspace.name,ownerId:legacyMemberId(workspace.ownerId,remoteMembers.find(member=>member.userId===workspace.ownerId)?.email||"")});
+    session.value={accountId,memberId:accountId,workspaceId:id,name:user.name,email:user.email,role,initials:initials(user.name)};
+    loadWorkspace(id);
+    members.value=remoteMembers.map(member=>({id:legacyMemberId(member.userId,member.email),name:member.name,email:member.email,job:member.workspaceJob||member.job||"Profissional",role:member.role==="MEMBER"?"Membro":"Administrador",initials:initials(member.name),avatar:member.avatarKey||undefined,color:"purple",blocked:member.status==="BLOCKED",membershipId:member.id,permissionRole:member.role,workspaceJob:member.workspaceJob}));
     persist();
   }
   function register(data:{name:string;email:string;job:string;password:string}){
@@ -84,5 +98,5 @@ export const useTaskFlowStore=defineStore("taskflow",()=>{
   function saveProject(project:Project){const index=projects.value.findIndex(p=>p.id===project.id);if(index>=0)projects.value[index]=project;else projects.value.unshift(project)}
   function saveMember(member:Member){const index=members.value.findIndex(m=>m.id===member.id);if(index>=0)members.value[index]=member;else members.value.push(member)}
   function removeMember(id:number){if(!session.value)return;members.value=members.value.filter(m=>m.id!==id);memberships.value=memberships.value.filter(m=>!(m.accountId===id&&m.workspaceId===workspaceId.value));tasks.value=tasks.value.map(t=>t.assigneeId===id?{...t,assigneeId:session.value!.memberId}:t);projects.value=projects.value.map(p=>({...p,members:p.members.filter(mid=>mid!==id)}))}
-  return{session,accounts,workspaces,memberships,invites,tasks,projects,members,prefs,admin,visibleTasks,visibleProjects,currentWorkspace,login,demo,logout,adoptAuthenticatedUser,register,switchWorkspace,createWorkspace,saveTask,removeTask,saveProject,saveMember,removeMember,persist};
+  return{session,accounts,workspaces,memberships,invites,tasks,projects,members,prefs,admin,visibleTasks,visibleProjects,currentWorkspace,login,demo,logout,adoptAuthenticatedUser,adoptRemoteWorkspace,register,switchWorkspace,createWorkspace,saveTask,removeTask,saveProject,saveMember,removeMember,persist};
 });

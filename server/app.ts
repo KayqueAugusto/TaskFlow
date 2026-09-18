@@ -6,10 +6,11 @@ import type { FastifyReply } from "fastify";
 import { ZodError } from "zod";
 import type { Environment } from "./config.js";
 import { AuthError, AuthService, InMemoryAuthRepository, SESSION_COOKIE } from "./auth.js";
+import { WorkspaceError, WorkspaceService } from "./workspaces.js";
 
-export function buildApp(environment:Environment,authService=new AuthService(new InMemoryAuthRepository())) {
+export function buildApp(environment:Environment,authService=new AuthService(new InMemoryAuthRepository()),workspaces?:WorkspaceService) {
   const app=Fastify({logger:environment.NODE_ENV!=="test"});
-  app.register(cors,{origin:environment.WEB_ORIGIN,credentials:true,methods:["GET","HEAD","POST","PATCH"]});
+  app.register(cors,{origin:environment.WEB_ORIGIN,credentials:true,methods:["GET","HEAD","POST","PATCH","DELETE"]});
   app.register(cookie);
   app.register(rateLimit,{max:100,timeWindow:"1 minute"});
   app.get("/api/health",async()=>({data:{status:"ok",service:"taskflow-api"}}));
@@ -35,8 +36,25 @@ export function buildApp(environment:Environment,authService=new AuthService(new
     await authService.logout(request.cookies[SESSION_COOKIE]);
     return reply.clearCookie(SESSION_COOKIE,{httpOnly:true,sameSite:environment.NODE_ENV==="production"?"strict":"lax",secure:environment.NODE_ENV==="production",path:"/"}).send({data:{loggedOut:true}});
   });
+  if(workspaces){
+    const actor=async(token:string|undefined)=>(await authService.me(token)).user;
+    app.get("/api/workspaces",async request=>({data:await workspaces.list((await actor(request.cookies[SESSION_COOKIE])).id)}));
+    app.post("/api/workspaces",async(request,reply)=>reply.code(201).send({data:await workspaces.create((await actor(request.cookies[SESSION_COOKIE])).id,request.body)}));
+    app.get<{Params:{workspaceId:string}}>("/api/workspaces/:workspaceId",async request=>({data:await workspaces.get((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId)}));
+    app.patch<{Params:{workspaceId:string}}>("/api/workspaces/:workspaceId",async request=>({data:await workspaces.update((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.body)}));
+    app.delete<{Params:{workspaceId:string}}>("/api/workspaces/:workspaceId",async request=>({data:await workspaces.removeWorkspace((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId)}));
+    app.get<{Params:{workspaceId:string}}>("/api/workspaces/:workspaceId/members",async request=>({data:await workspaces.members((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId)}));
+    app.patch<{Params:{workspaceId:string;membershipId:string}}>("/api/workspaces/:workspaceId/members/:membershipId",async request=>({data:await workspaces.patchMember((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.params.membershipId,request.body)}));
+    app.delete<{Params:{workspaceId:string;membershipId:string}}>("/api/workspaces/:workspaceId/members/:membershipId",async request=>({data:await workspaces.removeMember((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.params.membershipId)}));
+    app.post<{Params:{workspaceId:string}}>("/api/workspaces/:workspaceId/transfer-ownership",async request=>({data:await workspaces.transfer((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.body)}));
+    app.get<{Params:{workspaceId:string}}>("/api/workspaces/:workspaceId/invitations",async request=>({data:await workspaces.invitations((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId)}));
+    app.post<{Params:{workspaceId:string}}>("/api/workspaces/:workspaceId/invitations",async(request,reply)=>reply.code(201).send({data:await workspaces.createInvitation((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.body)}));
+    app.delete<{Params:{workspaceId:string;invitationId:string}}>("/api/workspaces/:workspaceId/invitations/:invitationId",async request=>({data:await workspaces.revokeInvitation((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.params.invitationId)}));
+    app.post<{Params:{token:string}}>("/api/invitations/:token/accept",async request=>{const user=await actor(request.cookies[SESSION_COOKIE]);return {data:await workspaces.acceptInvitation(user.id,user.email,request.params.token)};});
+  }
   app.setNotFoundHandler((_request,reply)=>reply.code(404).send({error:{code:"NOT_FOUND",message:"Recurso não encontrado."}}));
   app.setErrorHandler((error,_request,reply)=>{
+    if(error instanceof AuthError||error instanceof WorkspaceError)return reply.code(error.statusCode).send({error:{code:error.code,message:error.message}});
     if(error instanceof ZodError)return reply.code(400).send({error:{code:"VALIDATION_ERROR",message:"Dados inválidos.",details:error.issues}});
     app.log.error(error);
     return reply.code(500).send({error:{code:"INTERNAL_ERROR",message:"Não foi possível concluir a operação."}});

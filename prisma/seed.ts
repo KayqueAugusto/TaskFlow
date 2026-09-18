@@ -16,5 +16,7 @@ const marina=await prisma.user.upsert({
   create:{id:marinaId,email:"marina@taskflow.demo",credential:{create:{passwordHash}},profile:{create:{name:"Marina Costa",jobTitle:"Product Designer"}},preferences:{create:{}}}
 });
 const workspace=await prisma.workspace.upsert({where:{id:workspaceId},update:{},create:{id:workspaceId,name:"TaskFlow Pessoal",ownerId:kayque.id,memberships:{create:[{userId:kayque.id,role:WorkspaceRole.OWNER},{userId:marina.id,role:WorkspaceRole.MEMBER}]}}});
+await prisma.membership.upsert({where:{workspaceId_userId:{workspaceId:workspace.id,userId:kayque.id}},update:{},create:{workspaceId:workspace.id,userId:kayque.id,role:workspace.ownerId===kayque.id?WorkspaceRole.OWNER:WorkspaceRole.ADMIN}});
+await prisma.membership.upsert({where:{workspaceId_userId:{workspaceId:workspace.id,userId:marina.id}},update:{},create:{workspaceId:workspace.id,userId:marina.id,role:WorkspaceRole.MEMBER}});
 await prisma.project.upsert({where:{id:projectId},update:{},create:{id:projectId,workspaceId:workspace.id,createdById:kayque.id,name:"Website Institucional",description:"Projeto demonstrativo inicial.",color:"#6c5ce7"}});
 await prisma.$disconnect();

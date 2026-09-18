@@ -22,6 +22,7 @@ enum InvitationStatus {
   PENDING
   ACCEPTED
   REJECTED
+  REVOKED
   EXPIRED
 }
 
@@ -94,6 +95,7 @@ model Membership {
   userId String @db.Uuid
   role WorkspaceRole @default(MEMBER)
   status MembershipStatus @default(ACTIVE)
+  workspaceJob String?
   createdAt DateTime @default(now())
   workspace Workspace @relation(fields:[workspaceId],references:[id],onDelete:Cascade)
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
@@ -106,6 +108,7 @@ model Invitation {
   workspaceId String @db.Uuid
   email String
   role WorkspaceRole @default(MEMBER)
+  workspaceJob String?
   tokenHash String @unique
   status InvitationStatus @default(PENDING)
   expiresAt DateTime

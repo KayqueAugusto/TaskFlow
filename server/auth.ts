@@ -11,7 +11,7 @@ export const registerSchema=z.object({
 });
 export const loginSchema=z.object({email:z.string().trim().email().max(254),password:z.string().min(1).max(128)});
 export const profileSchema=z.object({name:z.string().trim().min(2).max(120),job:z.string().trim().min(2).max(120),avatarKey:z.string().max(900_000).refine(value=>value.startsWith("suggested:")||/^data:image\/(png|jpeg|webp|gif);base64,/.test(value)).nullable().optional()});
-export type SafeUser={id:string;email:string;name:string;job:string|null;avatarKey:string|null;workspaceId:string;workspaceName:string;role:"OWNER"|"ADMIN"|"MEMBER"};
+export type SafeUser={id:string;email:string;name:string;job:string|null;avatarKey:string|null;workspaceId:string|null;workspaceName:string|null;role:"OWNER"|"ADMIN"|"MEMBER"|null};
 type UserRecord=SafeUser&{passwordHash:string;sessionTokens:Set<string>};
 export interface AuthRepository {
   findByEmail(email:string):Promise<UserRecord|undefined>;
@@ -77,8 +77,8 @@ export class PrismaAuthRepository implements AuthRepository {
   async findByEmail(email:string) {
     const user=await this.prisma.user.findUnique({where:{email},include:{credential:true,profile:true,memberships:{where:{status:"ACTIVE"},include:{workspace:true},orderBy:{createdAt:"asc"},take:1}}});
     const membership=user?.memberships[0];
-    if(!user||!user.credential||!user.profile||!membership)return undefined;
-    return {id:user.id,email:user.email,name:user.profile.name,job:user.profile.jobTitle,avatarKey:user.profile.avatarKey,workspaceId:membership.workspaceId,workspaceName:membership.workspace.name,role:membership.role,passwordHash:user.credential.passwordHash,sessionTokens:new Set<string>()};
+    if(!user||!user.credential||!user.profile)return undefined;
+    return {id:user.id,email:user.email,name:user.profile.name,job:user.profile.jobTitle,avatarKey:user.profile.avatarKey,workspaceId:membership?.workspaceId??null,workspaceName:membership?.workspace.name??null,role:membership?.role??null,passwordHash:user.credential.passwordHash,sessionTokens:new Set<string>()};
   }
   async createUser(input:{name:string;email:string;job:string;passwordHash:string}) {
     const created=await this.prisma.$transaction(async tx=>{
@@ -92,8 +92,8 @@ export class PrismaAuthRepository implements AuthRepository {
   async findSession(tokenHash:string){
     const session=await this.prisma.session.findFirst({where:{tokenHash,revokedAt:null,expiresAt:{gt:new Date()}},include:{user:{include:{credential:true,profile:true,memberships:{where:{status:"ACTIVE"},include:{workspace:true},orderBy:{createdAt:"asc"},take:1}}}}});
     const user=session?.user,membership=user?.memberships[0];
-    if(!user||!user.credential||!user.profile||!membership)return undefined;
-    return {id:user.id,email:user.email,name:user.profile.name,job:user.profile.jobTitle,avatarKey:user.profile.avatarKey,workspaceId:membership.workspaceId,workspaceName:membership.workspace.name,role:membership.role,passwordHash:user.credential.passwordHash,sessionTokens:new Set<string>()};
+    if(!user||!user.credential||!user.profile)return undefined;
+    return {id:user.id,email:user.email,name:user.profile.name,job:user.profile.jobTitle,avatarKey:user.profile.avatarKey,workspaceId:membership?.workspaceId??null,workspaceName:membership?.workspace.name??null,role:membership?.role??null,passwordHash:user.credential.passwordHash,sessionTokens:new Set<string>()};
   }
   async revokeSession(tokenHash:string){await this.prisma.session.updateMany({where:{tokenHash,revokedAt:null},data:{revokedAt:new Date()}})}
   async updateProfile(userId:string,input:{name:string;job:string;avatarKey?:string|null}) { await this.prisma.profile.update({where:{userId},data:{name:input.name,jobTitle:input.job,avatarKey:input.avatarKey??null}});const user=await this.findByEmail((await this.prisma.user.findUniqueOrThrow({where:{id:userId}})).email);if(!user)throw new AuthError("UNAUTHENTICATED","Sessão expirada ou inválida.",401);return user; }
