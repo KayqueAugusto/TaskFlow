@@ -132,3 +132,7 @@ O protótipo agora utiliza build estático do Vite para hospedagem no Sites.
 ## Situação atual — 2026-09-18
 
 Autenticação, workspaces, memberships, permissões e convites agora usam Fastify e PostgreSQL. As linhas antigas abaixo registram a auditoria histórica do protótipo e não descrevem o estado atual desses módulos. O convite é persistido, mas o envio de e-mail ainda não existe: o link deve ser copiado. A exclusão de workspace foi desabilitada até a migração de projetos e tarefas. Esses dois agregados, calendário, relatórios derivados e notificações ainda usam dados locais e podem divergir entre dispositivos. A próxima fase recomendada é migrar projetos/tarefas para API, preservar vínculos com memberships e então eliminar as representações legadas da store.
+
+## Integração de projetos e tarefas — 2026-09-25
+
+Projetos, tarefas, responsáveis e atividades agora são persistidos no PostgreSQL e alimentam Dashboard, Minhas tarefas, Projetos, Calendário, Relatórios e atividades da Equipe. O código legado de seeds e mutações locais ainda existe em `taskflow.ts` para compatibilidade histórica, mas não participa dos fluxos integrados; deve ser removido somente após a revisão final. Chaves antigas do `localStorage` permanecem como backup não importado. Permanecem pendentes: envio de e-mail, OAuth, recuperação de senha, notificações em tempo real, upload externo, observabilidade, CI e decisão final sobre exclusão de workspace.

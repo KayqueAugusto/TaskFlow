@@ -22,12 +22,13 @@ it("redireciona ao login e bloqueia Dashboard após logout",async()=>{
   const workspace={id:"w",name:"Workspace de caio",ownerId:"u",role:"OWNER",status:"ACTIVE"};
   vi.mocked(fetch).mockImplementation(async input=>{
     const path=String(input);
-    const data=path.endsWith("/auth/me")?{user}:path.endsWith("/workspaces")?[workspace]:path.endsWith("/workspaces/w/members")?[{id:"u",userId:"u",workspaceId:"w",name:"caio",email:user.email,job:"Designer",workspaceJob:null,avatarKey:null,role:"OWNER",status:"ACTIVE"}]:{loggedOut:true};
+    const data=path.endsWith("/auth/me")?{user}:path.endsWith("/workspaces")?[workspace]:path.endsWith("/workspaces/w/members")?[{id:"u",userId:"u",workspaceId:"w",name:"caio",email:user.email,job:"Designer",workspaceJob:null,avatarKey:null,role:"OWNER",status:"ACTIVE"}]:path.includes("/projects")||path.includes("/tasks")||path.includes("/activities")?[]:{loggedOut:true};
     return {ok:true,json:async()=>({data})} as Response;
   });
   await router.push("/dashboard");
   expect(router.currentRoute.value.path).toBe("/dashboard");
   vi.stubGlobal("document",{documentElement:{dataset:{},classList:{toggle:()=>undefined}}});
+  const {useBusinessStore}=await import("../src/stores/business.js");await useBusinessStore().load("w");
   const {default:WorkspaceView}=await import("../src/views/WorkspaceView.vue");
   const html=await renderToString(createSSRApp(WorkspaceView).use(router));
   expect(html).toContain("Olá, caio");

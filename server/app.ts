@@ -7,8 +7,9 @@ import { ZodError } from "zod";
 import type { Environment } from "./config.js";
 import { AuthError, AuthService, InMemoryAuthRepository, SESSION_COOKIE } from "./auth.js";
 import { WorkspaceError, WorkspaceService } from "./workspaces.js";
+import { BusinessService } from "./business.js";
 
-export function buildApp(environment:Environment,authService=new AuthService(new InMemoryAuthRepository()),workspaces?:WorkspaceService) {
+export function buildApp(environment:Environment,authService=new AuthService(new InMemoryAuthRepository()),workspaces?:WorkspaceService,business?:BusinessService) {
   const app=Fastify({logger:environment.NODE_ENV!=="test"});
   app.register(cors,{origin:environment.WEB_ORIGIN,credentials:true,methods:["GET","HEAD","POST","PATCH","DELETE"]});
   app.register(cookie);
@@ -51,6 +52,20 @@ export function buildApp(environment:Environment,authService=new AuthService(new
     app.post<{Params:{workspaceId:string}}>("/api/workspaces/:workspaceId/invitations",async(request,reply)=>reply.code(201).send({data:await workspaces.createInvitation((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.body)}));
     app.delete<{Params:{workspaceId:string;invitationId:string}}>("/api/workspaces/:workspaceId/invitations/:invitationId",async request=>({data:await workspaces.revokeInvitation((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.params.invitationId)}));
     app.post<{Params:{token:string}}>("/api/invitations/:token/accept",async request=>{const user=await actor(request.cookies[SESSION_COOKIE]);return {data:await workspaces.acceptInvitation(user.id,user.email,request.params.token)};});
+  }
+  if(business){
+    const actor=async(token:string|undefined)=>(await authService.me(token)).user;
+    app.get<{Params:{workspaceId:string}}>("/api/workspaces/:workspaceId/projects",async request=>({data:await business.projects((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId)}));
+    app.post<{Params:{workspaceId:string}}>("/api/workspaces/:workspaceId/projects",async(request,reply)=>reply.code(201).send({data:await business.createProject((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.body)}));
+    app.get<{Params:{workspaceId:string;projectId:string}}>("/api/workspaces/:workspaceId/projects/:projectId",async request=>({data:await business.project((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.params.projectId)}));
+    app.patch<{Params:{workspaceId:string;projectId:string}}>("/api/workspaces/:workspaceId/projects/:projectId",async request=>({data:await business.updateProject((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.params.projectId,request.body)}));
+    app.delete<{Params:{workspaceId:string;projectId:string}}>("/api/workspaces/:workspaceId/projects/:projectId",async request=>({data:await business.deleteProject((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.params.projectId)}));
+    app.get<{Params:{workspaceId:string};Querystring:Record<string,string>}>("/api/workspaces/:workspaceId/tasks",async request=>({data:await business.tasks((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.query)}));
+    app.post<{Params:{workspaceId:string}}>("/api/workspaces/:workspaceId/tasks",async(request,reply)=>reply.code(201).send({data:await business.createTask((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.body)}));
+    app.get<{Params:{workspaceId:string;taskId:string}}>("/api/workspaces/:workspaceId/tasks/:taskId",async request=>({data:await business.task((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.params.taskId)}));
+    app.patch<{Params:{workspaceId:string;taskId:string}}>("/api/workspaces/:workspaceId/tasks/:taskId",async request=>({data:await business.updateTask((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.params.taskId,request.body)}));
+    app.delete<{Params:{workspaceId:string;taskId:string}}>("/api/workspaces/:workspaceId/tasks/:taskId",async request=>({data:await business.deleteTask((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.params.taskId)}));
+    app.get<{Params:{workspaceId:string};Querystring:{userId?:string}}>("/api/workspaces/:workspaceId/activities",async request=>({data:await business.activities((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.query.userId)}));
   }
   app.setNotFoundHandler((_request,reply)=>reply.code(404).send({error:{code:"NOT_FOUND",message:"Recurso não encontrado."}}));
   app.setErrorHandler((error,_request,reply)=>{

@@ -7,10 +7,11 @@ export interface WorkspaceData {
 }
 
 export interface TaskFlowDataSource {
-  loadWorkspace(workspaceId:number):Promise<WorkspaceData>;
-  saveTask(workspaceId:number,task:Task):Promise<Task>;
-  deleteTask(workspaceId:number,taskId:number):Promise<void>;
-  saveProject(workspaceId:number,project:Project):Promise<Project>;
+  loadWorkspace(workspaceId:string):Promise<WorkspaceData>;
+  saveTask(workspaceId:string,task:Task):Promise<Task>;
+  deleteTask(workspaceId:string,taskId:string):Promise<void>;
+  saveProject(workspaceId:string,project:Project):Promise<Project>;
+  deleteProject(workspaceId:string,projectId:string):Promise<void>;
 }
 
 export type ApiSuccess<T>={data:T;meta?:Record<string,unknown>};

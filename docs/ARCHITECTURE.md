@@ -1,5 +1,13 @@
 # Arquitetura e decisões
 
+## Integração final do domínio — 2026-09-25
+
+`BusinessService` implementa projetos, tarefas, responsáveis e atividades sobre Prisma. Toda consulta começa pela membership ativa e inclui `workspaceId`; IDs de projeto, tarefa e usuário nunca autorizam acesso isoladamente. OWNER e ADMIN administram projetos e tarefas. MEMBER pode criar tarefas e alterar título, descrição ou status de tarefas criadas por ele ou atribuídas a ele. Responsáveis e participantes são usuários com membership ativa no mesmo workspace.
+
+`useBusinessStore` é a fonte de projetos, tarefas e atividades no cliente. Ela carrega os três conjuntos em paralelo, usa um contador de versão para descartar respostas do workspace anterior e recalcula Dashboard, calendário, progresso e relatórios a partir das mesmas coleções. A store legada conserva somente a projeção de sessão/membros necessária aos componentes e preferências visuais. Chaves antigas de projeto/tarefa permanecem intactas como backup, sem leitura, escrita dupla ou importação automática.
+
+Datas de prazo são transmitidas como `YYYY-MM-DD`, armazenadas em UTC à meia-noite e devolvidas novamente como data civil. O calendário compara a string civil construída no fuso local, evitando deslocamento de dia. Exclusão de projeto falha com `409` quando há tarefas. A migration `20260925120500_projects_tasks_api` adiciona status do projeto, participantes e `completedAt`.
+
 ## Integração de workspaces e membros — 2026-09-18
 
 `WorkspaceService` consulta memberships PostgreSQL a partir da identidade da sessão. Cada leitura e mutação verifica membership ativa no servidor; bloqueio impede acesso ao workspace sem encerrar a conta pessoal. `OWNER` pode transferir propriedade em transação; `ADMIN` gerencia apenas membros comuns; `MEMBER` apenas consulta. Perfil pessoal e função no workspace são campos distintos. Exclusão de workspace retorna `409` até migrar projetos/tarefas e definir a política de dados relacionados.

@@ -4,11 +4,11 @@ Aplicação de gestão de tarefas, projetos, equipes e workspaces. Autenticaçã
 
 ## Estado real
 
-- **Integrado:** cadastro, login, sessão, perfil, logout, workspaces, membros, papéis, bloqueio, transferência de propriedade e convites persistidos. A API autoriza cada operação pela membership ativa.
-- **Local:** projetos, tarefas, calendário, relatórios derivados, preferências visuais e notificações de tarefas. O ID do workspace ativo é apenas uma preferência local validada pela API.
-- **Pendente:** envio de e-mail, OAuth Google, recuperação de senha, upload externo e migração de projetos/tarefas.
+- **Integrado:** cadastro, login, sessão, perfil, workspaces, membros, convites, projetos, tarefas, responsáveis e atividades. Dashboard, Minhas tarefas, Projetos, Calendário, Relatórios e Equipe usam os mesmos registros PostgreSQL.
+- **Local:** preferências visuais, e-mail lembrado e ID do workspace ativo. Esse ID é apenas uma preferência validada pela API.
+- **Pendente:** envio de e-mail, OAuth Google, recuperação de senha, upload externo e notificações em tempo real.
 
-Projetos e tarefas locais ainda não são colaboração entre dispositivos. O servidor é a fonte de verdade para identidade, workspaces, membros e convites.
+O servidor é a fonte de verdade para identidade, workspaces, membros, convites, projetos, tarefas e responsáveis.
 
 ## Stack
 
@@ -117,7 +117,19 @@ pnpm build
 
 O adaptador ainda lê chaves legadas para projetos/tarefas, mas workspaces, memberships e convites não são mais gravados nele. `taskflow_active_workspace_id` guarda apenas a preferência de seleção, sempre validada pelo servidor. Dados locais antigos não são importados automaticamente.
 
-Exclusão de workspace está indisponível (`409`) até existir uma política segura para projetos/tarefas. Convites geram links copiáveis, sem envio de e-mail. Próxima fase: migrar projetos, tarefas e seus relacionamentos para o PostgreSQL.
+As chaves antigas `taskflow_projects_*` e `taskflow_tasks_*` permanecem no navegador como backup legado, mas não são lidas nem gravadas pelos fluxos atuais e não são importadas automaticamente. Isso evita duplicação silenciosa. A exclusão de projeto é impedida enquanto houver tarefas. A exclusão de workspace continua indisponível até uma revisão final da política de retenção. Convites geram links copiáveis, sem envio de e-mail.
+
+## API de projetos e tarefas
+
+- `GET|POST /api/workspaces/:workspaceId/projects`
+- `GET|PATCH|DELETE /api/workspaces/:workspaceId/projects/:projectId`
+- `GET|POST /api/workspaces/:workspaceId/tasks`
+- `GET|PATCH|DELETE /api/workspaces/:workspaceId/tasks/:taskId`
+- `GET /api/workspaces/:workspaceId/activities`
+
+Tarefas aceitam filtros por projeto, status, prioridade, responsável, intervalo de prazo, texto e `mine=true`. OWNER/ADMIN administram projetos e tarefas. MEMBER cria tarefas e edita título, descrição e status quando criou a tarefa ou está atribuído a ela; exclusão, reatribuição, prioridade, prazo e projeto exigem OWNER/ADMIN. Responsáveis e participantes precisam ter membership ativa no mesmo workspace.
+
+Para deploy, configure `DATABASE_URL`, `WEB_ORIGIN`, `VITE_API_URL`, `NODE_ENV=production` e execute `prisma migrate deploy` antes de iniciar a API. Na Vercel, `VITE_API_URL` deve apontar para o serviço Render. No Render, habilite HTTPS, configure a origem exata da Vercel e mantenha PostgreSQL com TLS e backups.
 
 Consulte [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) para riscos e [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para decisões.
 

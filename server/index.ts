@@ -3,10 +3,11 @@ import { readEnvironment } from "./config.js";
 import { PrismaClient } from "@prisma/client";
 import { AuthService, PrismaAuthRepository } from "./auth.js";
 import { WorkspaceService } from "./workspaces.js";
+import { BusinessService } from "./business.js";
 
 const environment=readEnvironment();
 const prisma=new PrismaClient();
-const app=buildApp(environment,new AuthService(new PrismaAuthRepository(prisma)),new WorkspaceService(prisma,environment.WEB_ORIGIN));
+const app=buildApp(environment,new AuthService(new PrismaAuthRepository(prisma)),new WorkspaceService(prisma,environment.WEB_ORIGIN),new BusinessService(prisma));
 app.addHook("onClose",async()=>{await prisma.$disconnect()});
 try {
   await app.listen({host:environment.API_HOST,port:environment.API_PORT});

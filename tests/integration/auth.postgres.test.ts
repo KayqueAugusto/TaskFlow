@@ -3,6 +3,8 @@ import { PrismaClient } from "@prisma/client";
 import { buildApp } from "../../server/app.js";
 import { AuthService, PrismaAuthRepository } from "../../server/auth.js";
 import { WorkspaceService } from "../../server/workspaces.js";
+import { BusinessService } from "../../server/business.js";
+import { seedDatabase } from "../../prisma/seed.js";
 
 const testUrl=process.env.DATABASE_URL_TEST;
 const enabled=Boolean(testUrl&&testUrl.toLowerCase().includes("test"));
@@ -14,6 +16,7 @@ describePostgres("autenticação com PostgreSQL real",()=>{
   let app:ReturnType<typeof buildApp>;
   let authService:AuthService;
   let service:WorkspaceService;
+  let business:BusinessService;
   let owner:Awaited<ReturnType<AuthService["register"]>>;
   let admin:Awaited<ReturnType<AuthService["register"]>>;
   let member:Awaited<ReturnType<AuthService["register"]>>;
@@ -22,8 +25,8 @@ describePostgres("autenticação com PostgreSQL real",()=>{
   beforeAll(async()=>{
     if(!testUrl||!testUrl.toLowerCase().includes("test"))throw new Error("DATABASE_URL_TEST deve apontar para banco exclusivo de testes.");
     await prisma!.$executeRawUnsafe('TRUNCATE TABLE "Session", "Notification", "UserPreference", "Activity", "Comment", "TaskAssignee", "Task", "Project", "Invitation", "Membership", "Workspace", "Profile", "Credential", "User" CASCADE');
-    authService=new AuthService(new PrismaAuthRepository(prisma!));service=new WorkspaceService(prisma!,environment.WEB_ORIGIN);
-    app=buildApp(environment,authService,service);
+    authService=new AuthService(new PrismaAuthRepository(prisma!));service=new WorkspaceService(prisma!,environment.WEB_ORIGIN);business=new BusinessService(prisma!);
+    app=buildApp(environment,authService,service,business);
     owner=await authService.register({name:"Owner Teste",email:"owner@test.example",job:"Gestor",password:"senha-segura"});
     admin=await authService.register({name:"Admin Teste",email:"admin@test.example",job:"Designer",password:"senha-segura"});
     member=await authService.register({name:"Member Teste",email:"member@test.example",job:"Analista",password:"senha-segura"});
@@ -45,6 +48,13 @@ describePostgres("autenticação com PostgreSQL real",()=>{
     expect((await app.inject({method:"GET",url:"/api/auth/me",headers:{cookie}})).statusCode).toBe(401);
     expect((await app.inject({method:"POST",url:"/api/auth/logout",headers:{cookie}})).statusCode).toBe(200);
     expect((await app.inject({method:"POST",url:"/api/auth/login",payload:{email:"pg@example.com",password:"errada"}})).statusCode).toBe(401);
+  });
+
+  it("mantém o seed demonstrativo idempotente",async()=>{
+    await seedDatabase(prisma!);await seedDatabase(prisma!);
+    expect(await prisma!.project.count({where:{workspaceId:"00000000-0000-4000-8000-000000000101"}})).toBe(3);
+    expect(await prisma!.task.count({where:{workspaceId:"00000000-0000-4000-8000-000000000101"}})).toBe(6);
+    expect(await prisma!.taskAssignee.count({where:{task:{workspaceId:"00000000-0000-4000-8000-000000000101"}}})).toBe(6);
   });
 
   describe("workspaces, membros e convites",()=>{
@@ -137,6 +147,58 @@ describePostgres("autenticação com PostgreSQL real",()=>{
       const revoked=await invite(outsider.user.email);
       expect((await app.inject({method:"DELETE",url:`/api/workspaces/${workspaceId}/invitations/${revoked.id}`,headers:{cookie:cookie(owner)}})).statusCode).toBe(200);
       expect((await app.inject({method:"POST",url:`/api/invitations/${revoked.link.split("/").pop()}/accept`,headers:{cookie:cookie(outsider)}})).statusCode).toBe(410);
+    });
+  });
+
+  describe("projetos, tarefas e atividades",()=>{
+    let workspaceId:string,projectId:string;
+    beforeEach(async()=>{
+      const workspace=await service.create(owner.user.id,{name:"Negócio real"});workspaceId=workspace.id;
+      for(const target of [{session:admin,role:"ADMIN" as const},{session:member,role:"MEMBER" as const}]){const invitation=await service.createInvitation(owner.user.id,workspaceId,{email:target.session.user.email,role:target.role});await service.acceptInvitation(target.session.user.id,target.session.user.email,invitation.link.split("/").pop()!)}
+      const project=await business.createProject(owner.user.id,workspaceId,{name:"Projeto API",description:"Persistido",color:"#6c5ce7",start:"2026-09-25",due:"2026-10-30",memberIds:[owner.user.id,member.user.id]});projectId=project.id;
+    });
+
+    it("faz CRUD de projeto, calcula progresso e impede exclusão com tarefas",async()=>{
+      const updated=await app.inject({method:"PATCH",url:`/api/workspaces/${workspaceId}/projects/${projectId}`,headers:{cookie:cookie(owner)},payload:{name:"Projeto atualizado",status:"ACTIVE"}});
+      expect(updated.statusCode).toBe(200);expect(updated.json().data.name).toBe("Projeto atualizado");
+      expect((await app.inject({method:"PATCH",url:`/api/workspaces/${workspaceId}/projects/${projectId}`,headers:{cookie:cookie(member)},payload:{name:"Inválido"}})).statusCode).toBe(403);
+      const task=await business.createTask(owner.user.id,workspaceId,{projectId,title:"Entrega",description:"Teste",status:"COMPLETED",priority:"HIGH",due:"2026-10-01",assigneeIds:[member.user.id]});
+      const tasks=(await app.inject({method:"GET",url:`/api/workspaces/${workspaceId}/tasks`,headers:{cookie:cookie(owner)}})).json().data;
+      expect(tasks.filter((item:{projectId:string;status:string})=>item.projectId===projectId&&item.status==="COMPLETED")).toHaveLength(1);
+      expect((await app.inject({method:"DELETE",url:`/api/workspaces/${workspaceId}/projects/${projectId}`,headers:{cookie:cookie(owner)}})).statusCode).toBe(409);
+      await business.deleteTask(owner.user.id,workspaceId,task.id);
+      expect((await app.inject({method:"DELETE",url:`/api/workspaces/${workspaceId}/projects/${projectId}`,headers:{cookie:cookie(owner)}})).statusCode).toBe(200);
+    });
+
+    it("aplica regras de MEMBER e registra alterações da tarefa",async()=>{
+      const created=await app.inject({method:"POST",url:`/api/workspaces/${workspaceId}/tasks`,headers:{cookie:cookie(member)},payload:{projectId,title:"Criada pelo membro",description:"Real",priority:"MEDIUM",status:"PENDING",due:"2026-10-02",assigneeIds:[member.user.id]}});
+      expect(created.statusCode).toBe(201);const taskId=created.json().data.id;
+      expect((await app.inject({method:"PATCH",url:`/api/workspaces/${workspaceId}/tasks/${taskId}`,headers:{cookie:cookie(member)},payload:{status:"COMPLETED"}})).statusCode).toBe(200);
+      expect((await app.inject({method:"PATCH",url:`/api/workspaces/${workspaceId}/tasks/${taskId}`,headers:{cookie:cookie(member)},payload:{priority:"HIGH"}})).statusCode).toBe(403);
+      expect((await app.inject({method:"DELETE",url:`/api/workspaces/${workspaceId}/tasks/${taskId}`,headers:{cookie:cookie(member)}})).statusCode).toBe(403);
+      const activity=(await app.inject({method:"GET",url:`/api/workspaces/${workspaceId}/activities?userId=${member.user.id}`,headers:{cookie:cookie(owner)}})).json().data;
+      expect(activity.some((item:{type:string})=>item.type==="TASK_COMPLETED")).toBe(true);
+    });
+
+    it("isola workspaces, projetos e responsáveis bloqueados ou externos",async()=>{
+      const foreignProject=await business.createProject(outsider.user.id,outsider.user.workspaceId!,{name:"Externo",description:"",color:"#123456",memberIds:[outsider.user.id]});
+      const payload={projectId:foreignProject.id,title:"Referência cruzada",description:"",priority:"LOW",status:"PENDING",due:null,assigneeIds:[member.user.id]};
+      expect((await app.inject({method:"POST",url:`/api/workspaces/${workspaceId}/tasks`,headers:{cookie:cookie(owner)},payload})).statusCode).toBe(400);
+      expect((await app.inject({method:"POST",url:`/api/workspaces/${workspaceId}/tasks`,headers:{cookie:cookie(owner)},payload:{...payload,projectId,assigneeIds:[outsider.user.id]}})).statusCode).toBe(400);
+      await service.patchMember(owner.user.id,workspaceId,member.user.id,{status:"BLOCKED"});
+      expect((await app.inject({method:"POST",url:`/api/workspaces/${workspaceId}/tasks`,headers:{cookie:cookie(owner)},payload:{...payload,projectId,assigneeIds:[member.user.id]}})).statusCode).toBe(400);
+      expect((await app.inject({method:"GET",url:`/api/workspaces/${workspaceId}/tasks`,headers:{cookie:cookie(member)}})).statusCode).toBe(403);
+      await service.patchMember(owner.user.id,workspaceId,member.user.id,{status:"ACTIVE"});
+      await service.removeMember(owner.user.id,workspaceId,member.user.id);
+      expect((await app.inject({method:"GET",url:`/api/workspaces/${workspaceId}/projects`,headers:{cookie:cookie(member)}})).statusCode).toBe(404);
+    });
+
+    it("filtra por status, prioridade, responsável, projeto, período, busca e minhas tarefas",async()=>{
+      await business.createTask(owner.user.id,workspaceId,{projectId,title:"Pesquisar relatório",description:"Indicador",status:"IN_PROGRESS",priority:"HIGH",due:"2026-10-05",assigneeIds:[member.user.id]});
+      await business.createTask(owner.user.id,workspaceId,{projectId,title:"Outra entrega",description:"",status:"PENDING",priority:"LOW",due:"2026-11-05",assigneeIds:[admin.user.id]});
+      const url=`/api/workspaces/${workspaceId}/tasks?status=IN_PROGRESS&priority=HIGH&assigneeId=${member.user.id}&projectId=${projectId}&from=2026-10-01&to=2026-10-31&q=relat%C3%B3rio&mine=true`;
+      const result=await app.inject({method:"GET",url,headers:{cookie:cookie(member)}});
+      expect(result.statusCode).toBe(200);expect(result.json().data).toHaveLength(1);expect(result.json().data[0].title).toBe("Pesquisar relatório");
     });
   });
 });
