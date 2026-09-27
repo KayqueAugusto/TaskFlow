@@ -1,5 +1,7 @@
 # TaskFlow — Vue + Fastify + PostgreSQL
 
+Repositório: https://github.com/KayqueAugusto/TaskFlow
+
 MVP de gestão de workspaces, equipes, projetos e tarefas. A publicação inicial usa **um Web Service no Render**, com Vue e API na mesma origem, e PostgreSQL gerenciado separado. Não há deploy externo automático nesta entrega.
 
 ## Stack e funcionalidades reais

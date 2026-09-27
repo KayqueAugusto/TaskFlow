@@ -6,6 +6,8 @@ O MVP usa PostgreSQL para autenticação, sessões, perfil, workspaces, membros/
 
 A interface foi preservada nesta entrega. Preparação de produção não equivale a publicação: Git remoto, provisionamento, secrets, migrations e primeiro deploy Render são ações manuais.
 
+O tema escuro é uma preferência persistida por usuário, mas seu atributo visual só é aplicado enquanto a área autenticada está montada. Login, Cadastro e convites públicos permanecem no tema claro aprovado, inclusive após logout e recarregamento.
+
 ## Fora do MVP — não implementado
 
 - OAuth Google e recuperação de senha.

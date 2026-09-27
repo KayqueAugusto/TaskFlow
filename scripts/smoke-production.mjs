@@ -103,6 +103,11 @@ try{
   await page.locator(".profile-editor dd input").first().fill("Smoke Updated");
   await page.getByRole("button",{name:"Salvar perfil",exact:true}).click();
   await expect(page.locator(".profile-main")).toContainText("Smoke Updated");
+  await page.goto(origin+"/configuracoes");
+  await page.locator(".settings-panel select").selectOption({label:"Escuro"});
+  await page.getByRole("button",{name:"Salvar alterações",exact:true}).click();
+  assert.equal(await page.evaluate(()=>globalThis.document.documentElement.dataset.theme),"escuro");
+  await page.screenshot({path:path.join(directory,"dark-workspace.png"),fullPage:true});
 
   await page.locator(".profile-main").click();await page.getByRole("button",{name:"Trocar workspace"}).click();
   await page.getByRole("button",{name:"Criar novo workspace"}).click();
@@ -139,13 +144,23 @@ try{
   await page.locator(".profile-main").click();await page.getByRole("button",{name:"Sair",exact:true}).click();
   await expect(page).toHaveURL(origin+"/login");
   assert.ok(!(await context.cookies()).some(cookie=>cookie.name==="taskflow_session"));
+  assert.equal(await page.evaluate(()=>globalThis.document.documentElement.dataset.theme),undefined);
+  const publicFormBackground=await page.locator(".login-input").first().evaluate(element=>globalThis.getComputedStyle(element).backgroundColor);
+  assert.notEqual(publicFormBackground,"rgb(34, 37, 50)");
+  const mobileContext=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:390,height:844}});
+  const mobilePage=await mobileContext.newPage();
+  await mobilePage.goto(origin+"/login");
+  assert.equal(await mobilePage.evaluate(()=>globalThis.document.documentElement.dataset.theme),undefined);
+  await mobilePage.screenshot({path:path.join(directory,"login-mobile.png"),fullPage:true});
+  await mobileContext.close();
   await page.goto(origin+"/dashboard");await expect(page).toHaveURL(origin+"/login");
   await page.getByLabel("E-mail",{exact:true}).fill(email);await page.getByLabel("Senha",{exact:true}).fill(userPassword);
   await page.getByRole("button",{name:/Entrar/}).click();await expect(page).toHaveURL(origin+"/dashboard");
   await expect(page.getByText("Smoke Task",{exact:true})).toBeVisible();
+  assert.equal(await page.evaluate(()=>globalThis.document.documentElement.dataset.theme),"escuro");
   assert.deepEqual(errors,[],"Browser JS/CSP errors");
   await page.screenshot({path:path.join(directory,"dashboard.png"),fullPage:true});
-  await writeFile(path.join(directory,"result.json"),JSON.stringify({passed:true,checks:["SPA direct routes and refresh","API and asset 404","health with PostgreSQL","register/login/session/profile/logout","workspace/project/task/status","Dashboard/Calendar/Reports","Secure/HttpOnly/Lax cookie","persistence and session after restart","no JS or CSP errors"],platform:process.platform},null,2));
+  await writeFile(path.join(directory,"result.json"),JSON.stringify({passed:true,checks:["SPA direct routes and refresh","API and asset 404","health with PostgreSQL","register/login/session/profile/logout","workspace/project/task/status","Dashboard/Calendar/Reports","Secure/HttpOnly/Lax cookie","dark mode scoped to authenticated workspace","public login clear on desktop/mobile","persistence and session after restart","no JS or CSP errors"],platform:process.platform},null,2));
   process.stdout.write("Production browser smoke: PASS (including restart and persistence).\n");
 } catch(error) {
   if(page){await page.screenshot({path:path.join(directory,"failure.png"),fullPage:true});await writeFile(path.join(directory,"failure.txt"),await page.locator("body").innerText())}
