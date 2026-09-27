@@ -1,105 +1,85 @@
-# TaskFlow — Vue 3 + Fastify + PostgreSQL
+# TaskFlow — Vue + Fastify + PostgreSQL
 
-Aplicação de gestão de tarefas, projetos, equipes e workspaces. Autenticação, workspaces, memberships e convites usam Fastify, Prisma e PostgreSQL; a interface Vue aprovada permanece.
+MVP de gestão de workspaces, equipes, projetos e tarefas. A publicação inicial usa **um Web Service no Render**, com Vue e API na mesma origem, e PostgreSQL gerenciado separado. Não há deploy externo automático nesta entrega.
 
-## Estado real
+## Stack e funcionalidades reais
 
-- **Integrado:** cadastro, login, sessão, perfil, workspaces, membros, convites, projetos, tarefas, responsáveis e atividades. Dashboard, Minhas tarefas, Projetos, Calendário, Relatórios e Equipe usam os mesmos registros PostgreSQL.
-- **Local:** preferências visuais, e-mail lembrado e ID do workspace ativo. Esse ID é apenas uma preferência validada pela API.
-- **Pendente:** envio de e-mail, OAuth Google, recuperação de senha, upload externo e notificações em tempo real.
+Vue 3, TypeScript, Vite, Vue Router, Pinia e Lucide; Node.js/Fastify, Zod, Prisma 6 e PostgreSQL. ESLint, Vitest, integração PostgreSQL e Playwright validam a aplicação.
 
-O servidor é a fonte de verdade para identidade, workspaces, membros, convites, projetos, tarefas e responsáveis.
+Persistidos no PostgreSQL: cadastro, login, sessões, perfil, workspaces, membros, permissões, bloqueio/remoção, transferência de propriedade, convites por link, projetos, tarefas, responsáveis e atividades. Dashboard, Minhas tarefas, Projetos, Calendário, Relatórios e Equipe consomem esses registros. Preferências visuais e seleção de workspace ficam no navegador; não autorizam acesso.
 
-## Stack
+Fora do MVP: OAuth Google, recuperação de senha, envio de convite por e-mail, armazenamento externo de avatar, notificações em tempo real e política final de exclusão de workspace. A exclusão de workspace continua indisponível; projetos com tarefas não podem ser excluídos. Dados antigos do localStorage não são importados.
 
-- Web: Vue 3, Composition API, TypeScript, Vite, Vue Router, Pinia, Lucide Vue e CSS próprio.
-- API: Node.js, TypeScript, Fastify, Zod, CORS e rate limiting.
-- Dados: PostgreSQL e Prisma ORM.
-- Qualidade: ESLint, vue-tsc, TypeScript, Vitest e injeção Fastify para testes HTTP.
+## Instalação e execução local
 
-Fastify permite testes HTTP sem abrir porta; Prisma mantém migrations e relações tipadas. A autorização é verificada no servidor.
+Requisitos: Node.js >=22.13, pnpm 11.25.0, Docker Desktop/Compose (ou PostgreSQL compatível).
 
-## Estrutura
-
-```text
-src/
-  components/       interface preservada
-  domain/           modelos e seeds locais
-  services/         armazenamento e contratos de fonte de dados
-  stores/           estado Pinia
-  views/             rotas visuais
-server/              bootstrap e infraestrutura Fastify
-prisma/              schema, migration inicial e seed
-tests/               testes da fundação
-docs/ARCHITECTURE.md decisões e plano de migração
-```
-
-## Requisitos e instalação
-
-- Node.js `>=22.13.0`
-- pnpm `11.25.0`
-- Docker Desktop (recomendado) ou PostgreSQL para aplicar migration/seed
-
-```bash
-pnpm install
-```
-
-Use a versão de Node indicada em `package.json`.
-
-## Configuração
-
-Copie `.env.example` para `.env` e ajuste somente valores locais. Nunca versione `.env` ou segredos.
-
-```env
-DATABASE_URL=postgresql://taskflow:taskflow_dev_only@localhost:5433/taskflow
-DATABASE_URL_TEST=postgresql://taskflow:taskflow_dev_only@localhost:5433/taskflow_test
-API_HOST=127.0.0.1
-API_PORT=3001
-WEB_ORIGIN=http://localhost:5173
-VITE_API_URL=http://localhost:3001/api
-```
-
-## PostgreSQL local
-
-```bash
+```powershell
+pnpm install --frozen-lockfile
+Copy-Item .env.example .env
 docker compose up -d
-pnpm prisma:migrate
+pnpm prisma:generate
+pnpm db:deploy
+# Opcional, explícito:
 pnpm prisma:seed
 ```
 
-O volume `taskflow_postgres_data` é persistente e o healthcheck aguarda o banco ficar pronto. As credenciais do compose são exclusivas de desenvolvimento.
+Compose publica PostgreSQL 16 em localhost:5433 e mantém volume persistente. A inicialização cria taskflow_test separado. Não use as credenciais do Compose em produção. Não execute testes destrutivos contra dados reais.
 
-## Execução
+Em dois terminais:
 
 ```bash
 pnpm dev:web
 pnpm dev:api
 ```
 
-`pnpm dev` inicia apenas o frontend. Execute a API em outro terminal para os fluxos integrados.
+Vite: http://localhost:5173; API: http://localhost:3001. A API carrega .env via Node. API_PORT e WEB_ORIGIN antigos são aceitos apenas como aliases locais; prefira PORT e APP_ORIGIN. O host local da API é 127.0.0.1.
 
-## Banco, migration e seed
+## Variáveis de ambiente
+
+| Variável | Produção | Desenvolvimento |
+| --- | --- | --- |
+| NODE_ENV | production (pnpm start força este modo) | development; test nos testes |
+| PORT | Obrigatória; Render fornece | 3001 por padrão |
+| DATABASE_URL | URL PostgreSQL privada, sem credenciais locais | Banco Compose |
+| SESSION_SECRET | Obrigatória, aleatória, pelo menos 32 caracteres | Fallback público somente local |
+| APP_ORIGIN | Origem HTTPS exata, ex.: https://taskflow-identificador.onrender.com | http://localhost:5173 |
+| COOKIE_SECURE | true obrigatório | false |
+| DATABASE_URL_TEST | Não configurar no Render | Banco separado cujo nome contenha test |
+| VITE_API_URL | Não configurar: produção usa /api | URL local da API |
+
+APP_ORIGIN não aceita caminho, barra final, query, credenciais, lista de origens ou *. Nenhum segredo deve ter prefixo VITE_. .env e certificados são ignorados pelo Git. Gere SESSION_SECRET com um gerador criptográfico (por exemplo, 48 bytes aleatórios convertidos para hexadecimal); não use exemplos da documentação como segredo.
+
+Cookies: taskflow_session assinado, HttpOnly, Secure em produção, SameSite=Lax, Path=/, sem Domain, duração de sete dias. Tokens aleatórios são armazenados como SHA-256 no banco; logout revoga a sessão. Alterar SESSION_SECRET invalida os cookies existentes. Não há dependência de cookies de terceiros.
+
+## Migrations e seed
 
 ```bash
 pnpm prisma:generate
+pnpm db:deploy
+# Apenas desenvolvimento de novas migrations:
 pnpm prisma:migrate
+# Apenas ação manual:
 pnpm prisma:seed
 ```
 
-O schema cobre usuários, perfis, workspaces, memberships, convites, projetos/tarefas futuros e sessões. A migration `20260918010438_workspace_member_roles_and_invitation_lifecycle` adiciona função específica da membership e estado de convite revogado. A migration preexistente `20260917023523_pnpm_prisma_seed` foi preservada sem alteração; seu SQL recria regras de cascata de chaves estrangeiras e adiciona índices para proprietário de workspace e comentários.
+As quatro migrations estão versionadas em prisma/migrations. db:deploy executa prisma migrate deploy; não apaga/recria o banco. Build/start não executam migrations, migrate dev, db push ou seed. Aplique migrations **antes** de liberar uma nova versão. Revise compatibilidade com a versão anterior e backup antes de mudanças de schema.
 
-Contas locais e de seed de desenvolvimento:
+O seed é idempotente e cria dados demonstrativos (3 projetos e 6 tarefas no workspace demo). Nunca copie automaticamente o banco local para o Render. Em um ambiente de portfólio, pode executar o seed manualmente uma vez, conferindo projetos, tarefas e membros após a execução.
 
-| Perfil | E-mail | Senha de desenvolvimento |
-| --- | --- | --- |
-| Administrador | `kayque@taskflow.demo` | `123456` |
-| Membro | `marina@taskflow.demo` | `123456` |
+| Conta demonstrativa pública | Senha pública |
+| --- | --- |
+| kayque@taskflow.demo | 123456 |
+| marina@taskflow.demo | 123456 |
 
-Não reutilize essas credenciais em produção.
+Os botões existentes de demonstração usam essas credenciais públicas. Não são segredos nem contas para dados privados. Sem seed, esses botões não terão contas correspondentes. Não misture dados pessoais ou de clientes no workspace demonstrativo. O seed não roda a cada deploy.
 
-## Qualidade
+## Validações
 
-```bash
+```powershell
+.\node_modules\.bin\prisma.CMD validate
+pnpm prisma:generate
+# Configure DATABASE_URL temporariamente para DATABASE_URL_TEST para aplicar migrations ao teste.
 pnpm lint
 pnpm typecheck
 pnpm test
@@ -107,36 +87,70 @@ pnpm test:integration
 pnpm build
 ```
 
-`pnpm test:integration` executa o teste com PostgreSQL real quando `DATABASE_URL_TEST` estiver definido para um banco separado cujo nome contenha `test`; sem essa variável o caso fica explicitamente marcado como skipped.
+Os comandos de teste carregam .env. A integração limpa tabelas do banco de teste e verifica autorização por workspace/IDs, membros bloqueados, sessões, CRUD e idempotência do seed. Sem DATABASE_URL_TEST válida, a integração é marcada skipped; isso não conta como validação completa.
 
-## Rotas atuais
+## Build e execução de produção
 
-`/login`, `/cadastro`, `/invite/:token`, `/dashboard`, `/tarefas`, `/projetos`, `/projetos/:id`, `/calendario`, `/equipe`, `/equipe/:id/atividades`, `/relatorios` e `/configuracoes`.
+```bash
+pnpm build
+pnpm start
+```
 
-## Persistência e compatibilidade
+build gera Prisma, faz typecheck, compila Vue em dist e backend em dist-server. start executa JavaScript com Node, força produção, valida variáveis e conecta ao banco antes de escutar em 0.0.0.0:$PORT. Não usa tsx watch ou Vite preview. NODE_ENV, banco e origem devem estar configurados para produção; o .env de desenvolvimento não é configuração válida para start.
 
-O adaptador ainda lê chaves legadas para projetos/tarefas, mas workspaces, memberships e convites não são mais gravados nele. `taskflow_active_workspace_id` guarda apenas a preferência de seleção, sempre validada pelo servidor. Dados locais antigos não são importados automaticamente.
+Fastify serve assets e as rotas conhecidas do Vue (incluindo /dashboard e rotas de detalhes/convites), com fallback para index.html. API e assets inexistentes retornam 404; a API continua JSON. HTML revalida cache. SIGTERM/SIGINT fecham Fastify e Prisma, com prazo de dez segundos. /api/health consulta SELECT 1, tem timeout de dois segundos e retorna 503 genérico quando o banco não responde.
 
-As chaves antigas `taskflow_projects_*` e `taskflow_tasks_*` permanecem no navegador como backup legado, mas não são lidas nem gravadas pelos fluxos atuais e não são importadas automaticamente. Isso evita duplicação silenciosa. A exclusão de projeto é impedida enquanto houver tarefas. A exclusão de workspace continua indisponível até uma revisão final da política de retenção. Convites geram links copiáveis, sem envio de e-mail.
+## Smoke de produção local com navegador
 
-## API de projetos e tarefas
+Pare Vite e tsx antes. O smoke inicia **pnpm start** com a configuração de produção, termina o processo e o reinicia para testar persistência. Usa somente o PostgreSQL local de DATABASE_URL_TEST. Requer que o usuário local possa criar/remover uma role temporária, que o hostname da máquina alcance a porta do PostgreSQL e que as migrations estejam aplicadas.
 
-- `GET|POST /api/workspaces/:workspaceId/projects`
-- `GET|PATCH|DELETE /api/workspaces/:workspaceId/projects/:projectId`
-- `GET|POST /api/workspaces/:workspaceId/tasks`
-- `GET|PATCH|DELETE /api/workspaces/:workspaceId/tasks/:taskId`
-- `GET /api/workspaces/:workspaceId/activities`
+```powershell
+node node_modules/@playwright/test/cli.js install chromium
+pnpm build
+pnpm smoke:production
+```
 
-Tarefas aceitam filtros por projeto, status, prioridade, responsável, intervalo de prazo, texto e `mine=true`. OWNER/ADMIN administram projetos e tarefas. MEMBER cria tarefas e edita título, descrição e status quando criou a tarefa ou está atribuído a ela; exclusão, reatribuição, prioridade, prazo e projeto exigem OWNER/ADMIN. Responsáveis e participantes precisam ter membership ativa no mesmo workspace.
+Requer OpenSSL (no Windows, usa o incluído no Git; sobrescreva OPENSSL_BIN se necessário). Reserva portas 3100 e 3443. Cria certificado temporário e proxy HTTPS local em https://taskflow.test:3443; o Chromium resolve esse nome para 127.0.0.1 sem alterar hosts. Aceitar o certificado autoassinado é exclusivo do contexto de teste. O script cria credenciais aleatórias de banco, remove a role ao terminar e deixa registros de smoke apenas no banco de teste. Evidências e screenshots ficam em outputs/production-smoke, ignorado pelo Git.
 
-Para deploy, configure `DATABASE_URL`, `WEB_ORIGIN`, `VITE_API_URL`, `NODE_ENV=production` e execute `prisma migrate deploy` antes de iniciar a API. Na Vercel, `VITE_API_URL` deve apontar para o serviço Render. No Render, habilite HTTPS, configure a origem exata da Vercel e mantenha PostgreSQL com TLS e backups.
+Verifica cadastro/login/perfil/sessão/logout, cookie Secure/HttpOnly/Lax, workspace/projeto/tarefa/status, Dashboard/Calendário/Relatórios, acesso direto/refresh, assets/API 404 e persistência após reinício. No Windows, o reinício encerra a árvore do processo; o tratamento de sinais Unix deve ser confirmado no primeiro deploy Render.
 
-Consulte [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) para riscos e [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para decisões.
+Smoke HTTP após deploy:
 
-## Atualização de autenticação (2026-09-16)
+```bash
+curl -fsS https://taskflow-identificador.onrender.com/api/health
+curl -I https://taskflow-identificador.onrender.com/dashboard
+curl -i https://taskflow-identificador.onrender.com/api/inexistente
+curl -i https://taskflow-identificador.onrender.com/assets/inexistente.js
+```
 
-Login, cadastro, logout, recuperação de sessão (`GET /api/auth/me`) e atualização básica de perfil usam agora a API real. A sessão usa cookie HttpOnly persistido no banco, com expiração de sete dias e revogação no logout; nenhum token de autenticação é gravado no `localStorage`. O frontend mantém apenas um contexto local transitório para que projetos/tarefas legados continuem funcionando.
+Esperado: 200 JSON, 200 HTML, 404 JSON, 404. No navegador, repita login, recarga de /dashboard e logout; confira Secure/HttpOnly/Lax nas ferramentas de desenvolvimento.
 
-Para PostgreSQL local, execute `docker compose up -d`, `pnpm prisma:migrate` e `pnpm prisma:seed`. O PostgreSQL do Compose usa `localhost:5433` e nunca interfere no serviço Windows em `localhost:5432`. O script de inicialização cria `taskflow_test` de forma idempotente.
+## Publicação no Render — passos manuais
 
-O `.env` local usa `DATABASE_URL` em `5433` e `DATABASE_URL_TEST` em `5433/taskflow_test`; ele é ignorado pelo Git. O arquivo `.env.example` contém apenas credenciais de desenvolvimento.
+1. Crie um repositório no seu provedor Git. Confira o commit local, adicione remote e faça push quando decidir publicar. Nenhum remote/push é criado automaticamente.
+2. No Render, crie **PostgreSQL**. Escolha região e plano conscientemente; não há plano pago presumido. Crie o banco vazio e use credenciais geradas pelo serviço.
+3. Crie **Web Service**, conecte o repositório/branch main, runtime Node e mesma região do banco. Nome: taskflow-<identificador>. Mantenha deploy automático desligado até concluir migrations/configuração. Não crie Static Site ou frontend Vercel.
+4. Configure as variáveis da tabela: NODE_ENV=production, APP_ORIGIN com a URL exata atribuída, COOKIE_SECURE=true, SESSION_SECRET aleatório e DATABASE_URL interna do PostgreSQL. PORT é fornecida pelo Render. Use Node 22 compatível com engines e pnpm 11.25.0.
+5. Use os comandos abaixo. Instale devDependencies no build: TypeScript e a CLI Prisma são necessários.
+6. Aplique migrations antes da nova versão. Configure healthcheck /api/health. Faça o primeiro deploy manual e valide pelo domínio HTTPS.
+
+| Campo Render | Comando |
+| --- | --- |
+| Build Command | pnpm install --frozen-lockfile --prod=false && pnpm build |
+| Pre-Deploy Command | pnpm exec prisma migrate deploy |
+| Start Command | pnpm start |
+| Health Check Path | /api/health |
+
+Pre-deploy depende da disponibilidade desse recurso no plano. Se não estiver disponível, execute migrate deploy manualmente de um ambiente confiável com acesso ao banco, antes do deploy; mantenha deploy automático desligado. Não mova migrations para o build, nem use migrate dev/db push.
+
+Conexão: use a URL interna para serviços na mesma região. Acrescente parâmetros Prisma, preservando os existentes: connection_limit=5&pool_timeout=10&connect_timeout=5&socket_timeout=10. Comece com uma instância; ajuste o limite para que instâncias × 5, migrations e administração caibam no limite do PostgreSQL.
+
+Para TLS, siga a configuração do banco Render: conexões externas exigem TLS (sslmode=require); internas suportam TLS com certificado autoassinado. Configure sslmode=require também na URL interna quando habilitado e valide a conexão. Não use sslmode=disable para conexões externas. Ao executar migration externa, use a URL externa fornecida pelo Render com TLS e restrinja acesso de rede; não versione essa URL. Confira backups/retenção conforme o plano escolhido.
+
+Fontes oficiais: [Web Services](https://render.com/docs/web-services), [etapas e pre-deploy](https://render.com/docs/deploys), [PostgreSQL e TLS](https://render.com/docs/postgresql-creating-connecting).
+
+## Vercel somente no futuro
+
+Separar o frontend exigirá vercel.json com fallback SPA, tornar VITE_API_URL configurável no build de produção, CORS exato e revisão de cookies entre domínios. Prefira domínio personalizado ou proxy seguro para preservar autenticação. Esta entrega serve /api na mesma origem e não configura Vercel.
+
+Consulte [arquitetura](docs/ARCHITECTURE.md), [limitações](TECHNICAL_DEBT.md) e [auditoria de produção](docs/PRODUCTION_REVIEW.md).

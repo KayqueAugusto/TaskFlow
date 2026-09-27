@@ -1,5 +1,6 @@
+import { InMemoryAuthRepository } from "./auth-repository.js";
 import { describe, expect, it } from "vitest";
-import { AuthService, InMemoryAuthRepository } from "../server/auth.js";
+import { AuthService } from "../server/auth.js";
 
 describe("autenticação",()=>{
   const service=()=>new AuthService(new InMemoryAuthRepository());

@@ -1,22 +1,44 @@
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
+import helmet from "@fastify/helmet";
+import fastifyStatic from "@fastify/static";
+import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import type { FastifyReply } from "fastify";
 import { ZodError } from "zod";
 import type { Environment } from "./config.js";
-import { AuthError, AuthService, InMemoryAuthRepository, SESSION_COOKIE } from "./auth.js";
+import { AuthError, AuthService, SESSION_COOKIE } from "./auth.js";
 import { WorkspaceError, WorkspaceService } from "./workspaces.js";
 import { BusinessService } from "./business.js";
 
-export function buildApp(environment:Environment,authService=new AuthService(new InMemoryAuthRepository()),workspaces?:WorkspaceService,business?:BusinessService) {
-  const app=Fastify({logger:environment.NODE_ENV!=="test"});
-  app.register(cors,{origin:environment.WEB_ORIGIN,credentials:true,methods:["GET","HEAD","POST","PATCH","DELETE"]});
-  app.register(cookie);
-  app.register(rateLimit,{max:100,timeWindow:"1 minute"});
-  app.get("/api/health",async()=>({data:{status:"ok",service:"taskflow-api"}}));
+export function buildApp(environment:Environment,authService:AuthService,workspaces?:WorkspaceService,business?:BusinessService,checkDatabase?:()=>Promise<void>) {
+  const production=environment.NODE_ENV==="production";
+  if(production&&(!workspaces||!business||!checkDatabase))throw new Error("Serviços persistentes obrigatórios em produção.");
+  const app=Fastify({bodyLimit:1_048_576,trustProxy:production?(_address,hop)=>hop===0:false,logger:environment.NODE_ENV!=="test"?{serializers:{req:req=>({method:req.method,url:req.url?.split("?")[0]?.replace(/\/invitations\/[^/]+\/accept/,"/invitations/[redacted]/accept").replace(/\/invite\/[^/]+/,"/invite/[redacted]")}),res:res=>({statusCode:res.statusCode})},redact:["req.headers.cookie","req.headers.authorization","res.headers.set-cookie"]}:false});
+  app.register(helmet,{contentSecurityPolicy:production?{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'","'unsafe-inline'"],imgSrc:["'self'","data:","blob:"],fontSrc:["'self'"],connectSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"],baseUri:["'self'"],formAction:["'self'"]}}:false});
+  app.register(cors,{origin:environment.APP_ORIGIN,credentials:true,methods:["GET","HEAD","POST","PATCH","DELETE"]});
+  app.register(cookie,{secret:environment.SESSION_SECRET});
+  app.register(rateLimit,{max:100,timeWindow:"1 minute",allowList:request=>!request.url.startsWith("/api/")});
+  // Register routes after plugins so rate-limit's onRoute hook sees every route.
+  app.after(()=>{
+  app.addHook("onRequest",async(request,reply)=>{
+    if(request.url.startsWith("/api/"))reply.header("Cache-Control","no-store");
+    if(!["GET","HEAD","OPTIONS"].includes(request.method)&&request.headers.origin&&request.headers.origin!==environment.APP_ORIGIN)return reply.code(403).send({error:{code:"ORIGIN_REJECTED",message:"Origem não permitida."}});
+    const value=request.cookies[SESSION_COOKIE];
+    if(value){const unsigned=request.unsignCookie(value);request.cookies[SESSION_COOKIE]=unsigned.valid?unsigned.value:undefined}
+  });
+  app.get("/api/health",{config:{rateLimit:false}},async(_request,reply)=>{
+    let timeout:ReturnType<typeof setTimeout>|undefined;
+    try {
+      if(checkDatabase)await Promise.race([checkDatabase(),new Promise<never>((_resolve,reject)=>{timeout=setTimeout(()=>reject(new Error("timeout")),2000)})]);
+      return {data:{status:"ok",service:"taskflow-api"}};
+    } catch {return reply.code(503).send({error:{code:"NOT_READY",message:"Serviço temporariamente indisponível."}})}
+    finally {if(timeout)clearTimeout(timeout)}
+  });
 
-  const setSession=(reply:FastifyReply,session:{token:string;expiresAt:Date})=>reply.setCookie(SESSION_COOKIE,session.token,{httpOnly:true,sameSite:environment.NODE_ENV==="production"?"strict":"lax",secure:environment.NODE_ENV==="production",expires:session.expiresAt,path:"/"});
+  const cookieOptions={httpOnly:true,sameSite:"lax" as const,secure:environment.COOKIE_SECURE,path:"/"};
+  const setSession=(reply:FastifyReply,session:{token:string;expiresAt:Date})=>reply.setCookie(SESSION_COOKIE,session.token,{...cookieOptions,signed:true,expires:session.expiresAt});
   app.post("/api/auth/register",{config:{rateLimit:{max:5,timeWindow:"15 minutes"}}},async(request,reply)=>{
     try { const session=await authService.register(request.body);setSession(reply,session);return reply.code(201).send({data:{user:session.user}}); }
     catch(error){return handleAuthError(error,reply)}
@@ -35,7 +57,7 @@ export function buildApp(environment:Environment,authService=new AuthService(new
   });
   app.post("/api/auth/logout",async(request,reply)=>{
     await authService.logout(request.cookies[SESSION_COOKIE]);
-    return reply.clearCookie(SESSION_COOKIE,{httpOnly:true,sameSite:environment.NODE_ENV==="production"?"strict":"lax",secure:environment.NODE_ENV==="production",path:"/"}).send({data:{loggedOut:true}});
+    return reply.clearCookie(SESSION_COOKIE,cookieOptions).send({data:{loggedOut:true}});
   });
   if(workspaces){
     const actor=async(token:string|undefined)=>(await authService.me(token)).user;
@@ -67,12 +89,24 @@ export function buildApp(environment:Environment,authService=new AuthService(new
     app.delete<{Params:{workspaceId:string;taskId:string}}>("/api/workspaces/:workspaceId/tasks/:taskId",async request=>({data:await business.deleteTask((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.params.taskId)}));
     app.get<{Params:{workspaceId:string};Querystring:{userId?:string}}>("/api/workspaces/:workspaceId/activities",async request=>({data:await business.activities((await actor(request.cookies[SESSION_COOKIE])).id,request.params.workspaceId,request.query.userId)}));
   }
-  app.setNotFoundHandler((_request,reply)=>reply.code(404).send({error:{code:"NOT_FOUND",message:"Recurso não encontrado."}}));
+  if(production){
+    app.register(fastifyStatic,{root:fileURLToPath(new URL("../dist",import.meta.url)),index:false,dotfiles:"ignore",cacheControl:true,maxAge:0});
+    app.get("/",(_request,reply)=>reply.header("Cache-Control","no-cache").type("text/html").sendFile("index.html"));
+  }
+  app.setNotFoundHandler((request,reply)=>{
+    const path=request.url.split("?")[0];
+    const frontend=/^\/(?:login|cadastro|dashboard|tarefas|projetos(?:\/[^/.]+)?|calendario|equipe(?:\/[^/.]+\/atividades)?|relatorios|configuracoes|invite\/[^/.]+)?\/?$/.test(path);
+    if(production&&frontend&&["GET","HEAD"].includes(request.method))return reply.header("Cache-Control","no-cache").type("text/html").sendFile("index.html");
+    return reply.code(404).send({error:{code:"NOT_FOUND",message:"Recurso não encontrado."}});
+  });
   app.setErrorHandler((error,_request,reply)=>{
     if(error instanceof AuthError||error instanceof WorkspaceError)return reply.code(error.statusCode).send({error:{code:error.code,message:error.message}});
-    if(error instanceof ZodError)return reply.code(400).send({error:{code:"VALIDATION_ERROR",message:"Dados inválidos.",details:error.issues}});
-    app.log.error(error);
+    if(error instanceof ZodError)return reply.code(400).send({error:{code:"VALIDATION_ERROR",message:"Dados inválidos.",details:error.issues.map(issue=>({path:issue.path,code:issue.code}))}});
+    const status=(error as {statusCode?:number}).statusCode;
+    if(status&&status>=400&&status<500)return reply.code(status).send({error:{code:`HTTP_${status}`,message:"Requisição não permitida ou inválida."}});
+    app.log.error({requestId:_request.id},"Falha interna ao processar requisição.");
     return reply.code(500).send({error:{code:"INTERNAL_ERROR",message:"Não foi possível concluir a operação."}});
+  });
   });
   return app;
 }

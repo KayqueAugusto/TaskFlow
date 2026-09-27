@@ -5,6 +5,7 @@ import { AuthService, PrismaAuthRepository } from "../../server/auth.js";
 import { WorkspaceService } from "../../server/workspaces.js";
 import { BusinessService } from "../../server/business.js";
 import { seedDatabase } from "../../prisma/seed.js";
+import { readEnvironment } from "../../server/config.js";
 
 const testUrl=process.env.DATABASE_URL_TEST;
 const enabled=Boolean(testUrl&&testUrl.toLowerCase().includes("test"));
@@ -12,7 +13,7 @@ const describePostgres=describe.skipIf(!enabled);
 
 describePostgres("autenticação com PostgreSQL real",()=>{
   const prisma=enabled&&testUrl?new PrismaClient({datasources:{db:{url:testUrl}}}):null;
-  const environment={NODE_ENV:"test" as const,API_HOST:"127.0.0.1",API_PORT:3002,WEB_ORIGIN:"http://localhost:5173"};
+  const environment=readEnvironment({NODE_ENV:"test",DATABASE_URL:testUrl??"postgresql://test:test@localhost/test"});
   let app:ReturnType<typeof buildApp>;
   let authService:AuthService;
   let service:WorkspaceService;
@@ -21,11 +22,11 @@ describePostgres("autenticação com PostgreSQL real",()=>{
   let admin:Awaited<ReturnType<AuthService["register"]>>;
   let member:Awaited<ReturnType<AuthService["register"]>>;
   let outsider:Awaited<ReturnType<AuthService["register"]>>;
-  const cookie=(session:{token:string})=>`taskflow_session=${session.token}`;
+  const cookie=(session:{token:string})=>`taskflow_session=${encodeURIComponent(app.signCookie(session.token))}`;
   beforeAll(async()=>{
     if(!testUrl||!testUrl.toLowerCase().includes("test"))throw new Error("DATABASE_URL_TEST deve apontar para banco exclusivo de testes.");
     await prisma!.$executeRawUnsafe('TRUNCATE TABLE "Session", "Notification", "UserPreference", "Activity", "Comment", "TaskAssignee", "Task", "Project", "Invitation", "Membership", "Workspace", "Profile", "Credential", "User" CASCADE');
-    authService=new AuthService(new PrismaAuthRepository(prisma!));service=new WorkspaceService(prisma!,environment.WEB_ORIGIN);business=new BusinessService(prisma!);
+    authService=new AuthService(new PrismaAuthRepository(prisma!));service=new WorkspaceService(prisma!,environment.APP_ORIGIN);business=new BusinessService(prisma!);
     app=buildApp(environment,authService,service,business);
     owner=await authService.register({name:"Owner Teste",email:"owner@test.example",job:"Gestor",password:"senha-segura"});
     admin=await authService.register({name:"Admin Teste",email:"admin@test.example",job:"Designer",password:"senha-segura"});

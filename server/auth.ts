@@ -12,7 +12,7 @@ export const registerSchema=z.object({
 export const loginSchema=z.object({email:z.string().trim().email().max(254),password:z.string().min(1).max(128)});
 export const profileSchema=z.object({name:z.string().trim().min(2).max(120),job:z.string().trim().min(2).max(120),avatarKey:z.string().max(900_000).refine(value=>value.startsWith("suggested:")||/^data:image\/(png|jpeg|webp|gif);base64,/.test(value)).nullable().optional()});
 export type SafeUser={id:string;email:string;name:string;job:string|null;avatarKey:string|null;workspaceId:string|null;workspaceName:string|null;role:"OWNER"|"ADMIN"|"MEMBER"|null};
-type UserRecord=SafeUser&{passwordHash:string;sessionTokens:Set<string>};
+export type UserRecord=SafeUser&{passwordHash:string;sessionTokens:Set<string>};
 export interface AuthRepository {
   findByEmail(email:string):Promise<UserRecord|undefined>;
   createUser(input:{name:string;email:string;job:string;passwordHash:string}):Promise<UserRecord>;
@@ -57,20 +57,6 @@ export class AuthService {
 
 export class AuthError extends Error { constructor(public readonly code:string,message:string,public readonly statusCode:number){super(message)} }
 const safeUser=(user:UserRecord):SafeUser=>({id:user.id,email:user.email,name:user.name,job:user.job,avatarKey:user.avatarKey,workspaceId:user.workspaceId,workspaceName:user.workspaceName,role:user.role});
-
-export class InMemoryAuthRepository implements AuthRepository {
-  private users=new Map<string,UserRecord>();
-  private sessions=new Map<string,{userId:string;expiresAt:Date}>();
-  async findByEmail(email:string){return [...this.users.values()].find(user=>user.email===email);}
-  async createUser(input:{name:string;email:string;job:string;passwordHash:string}) {
-    const id=crypto.randomUUID(),user:UserRecord={id,email:input.email,name:input.name,job:input.job,avatarKey:null,workspaceId:crypto.randomUUID(),workspaceName:`Workspace de ${input.name.split(" ")[0]}`,role:"OWNER",passwordHash:input.passwordHash,sessionTokens:new Set()};
-    this.users.set(id,user);return user;
-  }
-  async createSession(userId:string,tokenHash:string,expiresAt:Date){this.sessions.set(tokenHash,{userId,expiresAt})}
-  async findSession(tokenHash:string){const session=this.sessions.get(tokenHash);if(!session||session.expiresAt<=new Date())return undefined;return this.users.get(session.userId)}
-  async revokeSession(tokenHash:string){this.sessions.delete(tokenHash)}
-  async updateProfile(userId:string,input:{name:string;job:string;avatarKey?:string|null}) { const user=this.users.get(userId);if(!user)throw new AuthError("UNAUTHENTICATED","Sessão expirada ou inválida.",401);user.name=input.name;user.job=input.job;user.avatarKey=input.avatarKey??null;return user; }
-}
 
 export class PrismaAuthRepository implements AuthRepository {
   constructor(private readonly prisma:PrismaClient) {}

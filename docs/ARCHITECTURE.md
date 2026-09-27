@@ -1,62 +1,49 @@
-# Arquitetura e decisões
+# Arquitetura do TaskFlow
 
-## Integração final do domínio — 2026-09-25
+## Produção na mesma origem
 
-`BusinessService` implementa projetos, tarefas, responsáveis e atividades sobre Prisma. Toda consulta começa pela membership ativa e inclui `workspaceId`; IDs de projeto, tarefa e usuário nunca autorizam acesso isoladamente. OWNER e ADMIN administram projetos e tarefas. MEMBER pode criar tarefas e alterar título, descrição ou status de tarefas criadas por ele ou atribuídas a ele. Responsáveis e participantes são usuários com membership ativa no mesmo workspace.
+```text
+Navegador HTTPS → proxy TLS do Render → Fastify (0.0.0.0:PORT)
+                                        ├─ rotas Vue + assets: dist/
+                                        └─ /api/* → serviços → Prisma → PostgreSQL gerenciado
+```
 
-`useBusinessStore` é a fonte de projetos, tarefas e atividades no cliente. Ela carrega os três conjuntos em paralelo, usa um contador de versão para descartar respostas do workspace anterior e recalcula Dashboard, calendário, progresso e relatórios a partir das mesmas coleções. A store legada conserva somente a projeção de sessão/membros necessária aos componentes e preferências visuais. Chaves antigas de projeto/tarefa permanecem intactas como backup, sem leitura, escrita dupla ou importação automática.
+O frontend usa /api em builds de produção. VITE_API_URL é apenas configuração de desenvolvimento. No desenvolvimento, Vite e Fastify continuam processos separados. APP_ORIGIN é validada como origem exata e alimenta CORS e links de convite.
 
-Datas de prazo são transmitidas como `YYYY-MM-DD`, armazenadas em UTC à meia-noite e devolvidas novamente como data civil. O calendário compara a string civil construída no fuso local, evitando deslocamento de dia. Exclusão de projeto falha com `409` quando há tarefas. A migration `20260925120500_projects_tasks_api` adiciona status do projeto, participantes e `completedAt`.
+## Build e processo
 
-## Integração de workspaces e membros — 2026-09-18
+pnpm build gera Prisma Client, verifica tipos e gera dist/ (Vite) e dist-server/ (tsc/NodeNext). Esses diretórios não são versionados. O backend usa imports .js compatíveis com ESM/Node e não inclui testes ou seed. O repositório de autenticação em memória fica somente em tests/.
 
-`WorkspaceService` consulta memberships PostgreSQL a partir da identidade da sessão. Cada leitura e mutação verifica membership ativa no servidor; bloqueio impede acesso ao workspace sem encerrar a conta pessoal. `OWNER` pode transferir propriedade em transação; `ADMIN` gerencia apenas membros comuns; `MEMBER` apenas consulta. Perfil pessoal e função no workspace são campos distintos. Exclusão de workspace retorna `409` até migrar projetos/tarefas e definir a política de dados relacionados.
+pnpm start executa dist-server/start.js: força NODE_ENV=production e importa o bootstrap. O bootstrap valida Zod e presença do frontend, conecta Prisma e só então escuta. SIGTERM/SIGINT encerram Fastify/Prisma; erros de bootstrap são genéricos e não imprimem credenciais.
 
-Convites persistem hash SHA-256 de token aleatório de 32 bytes, e-mail de destino, papel, expiração e estado. Aceitação autenticada verifica e-mail e cria membership em transação; o link usa `WEB_ORIGIN`. O servidor não envia e-mail. A store `workspaces` busca lista, membros e convites da API e conserva apenas o ID selecionado no navegador. A store legada continua servindo projetos/tarefas locais, projetando membros reais para os componentes existentes. A próxima fase deve migrar projetos/tarefas e remover essa ponte.
+@fastify/static serve somente dist. O fallback é restrito às rotas conhecidas do Router e métodos GET/HEAD; /api, arquivos inexistentes e rotas desconhecidas não recebem HTML. A rota raiz serve explicitamente index.html.
 
-Migration nova: `20260918010438_workspace_member_roles_and_invitation_lifecycle`. A migration preexistente `20260917023523_pnpm_prisma_seed` permanece intocada: ajusta ações de exclusão de chaves estrangeiras e cria índices `Workspace_ownerId_idx` e `Comment_taskId_createdAt_idx`.
+## Segurança e sessão
 
-## Baseline auditada em 2026-09-15
+Sessões opacas aleatórias, cookie assinado com SESSION_SECRET, HttpOnly, SameSite=Lax, Secure em produção, Path=/ e sem Domain. O banco armazena hash SHA-256 do token, expiração de sete dias e revogação. Não há token de autenticação no localStorage. Uma troca de segredo exige novo login.
 
-O frontend é uma SPA Vue 3 compacta. `WorkspaceView` orquestra páginas e modais, enquanto a store Pinia mantém todo o domínio. Antes desta entrega, store, router e login acessavam `localStorage` diretamente; modelos, seeds, autenticação local e regras também viviam na store. Não havia backend, banco ou testes.
+Zod valida entradas e ambiente. Origin divergente é recusada nas escritas; CORS aceita somente APP_ORIGIN com credenciais. Isso complementa SameSite=Lax. Chamadas sem Origin continuam possíveis para clientes HTTP, sujeitas à autenticação/autorização.
 
-## Decisões desta fase
+Helmet configura headers e CSP: scripts/conexões/fontes da própria origem, imagens locais/data/blob, frame-ancestors none, estilos inline permitidos para bindings existentes. Payload limitado a 1 MiB. Rate limit padrão 100/minuto, login 10/15 minutos, cadastro 5/15 minutos; health e assets não consomem esse limite. As rotas são registradas após os plugins para que o hook do rate limit seja aplicado.
 
-1. **Evolução no mesmo repositório sem mover o frontend.** Uma migração imediata para `apps/web` criaria churn e risco visual sem benefício funcional.
-2. **Fronteira de dados antes da integração.** `src/services/data-source.ts` define o contrato que permitirá trocar o adaptador local por API gradualmente. `src/services/storage.ts` centraliza e versiona as chaves existentes.
-3. **Fastify + Zod.** Fastify oferece lifecycle pequeno, tipagem e `inject` para integração. Zod validará fronteiras HTTP e ambiente. Express não adicionaria benefício específico nesta escala.
-4. **PostgreSQL + Prisma.** O domínio é relacional e exige constraints, transações, índices e isolamento de workspace. Prisma mantém schema e client tipados. IDs novos serão UUIDs de servidor.
-5. **Sessões persistidas e revogáveis.** O schema armazena apenas hash do token e expiração. A política de cookie HTTP-only, secure, same-site e CSRF será fechada junto aos endpoints de autenticação.
-6. **bcrypt para credenciais.** Argon2 foi tentado, mas o pacote nativo exigiu toolchain C++ ausente no Windows auditado. `bcryptjs` com custo 12 mantém instalação portátil; a decisão pode ser revisitada no deploy.
+Fastify confia apenas no proxy imediato em produção. Logs excluem cookies, Authorization, query strings e tokens de convite; erros internos não retornam stack, mensagem Prisma ou dados de conexão. Respostas da API usam no-store e envelopes data/error. Status 400/413/429 são preservados.
 
-## Limite de segurança atual
+## Persistência e autorização
 
-A API não recebe identidade nem oferece endpoints de negócio. Portanto não existe falsa autorização server-side. Quando implementados, todos os queries deverão conter `workspaceId` derivado de uma sessão válida e membership ativa; IDs vindos da URL nunca bastarão. Operações administrativas deverão proteger proprietário e último administrador dentro de transações.
+AuthService usa PrismaAuthRepository. WorkspaceService verifica membership, papel e bloqueio; BusinessService valida workspace, projetos, tarefas e responsáveis. OWNER/ADMIN administram; MEMBER tem edição limitada a tarefas criadas/atribuídas. Manipular IDs não atravessa workspaces. Bloqueio é por membership e não bloqueia a conta pessoal em outros workspaces. Logout revoga sessão.
 
-## Migração localStorage → API
+Stores de auth/workspaces/business consomem a API. A store legada adapta dados para a interface; preferências e IDs locais não concedem permissão. Dashboard, Calendário e Relatórios derivam de projetos/tarefas reais. Não há importação silenciosa de dados antigos.
 
-1. Manter chaves antigas legíveis e registrar versão sem apagar dados.
-2. Implementar sessão real e endpoint de identidade.
-3. Implementar leitura/escrita de um agregado por vez atrás de `TaskFlowDataSource`.
-4. Oferecer importação explícita, validada e idempotente dos dados locais ou reinicialização confirmada.
-5. Após confirmação do servidor, remover somente dados de negócio; manter tema, modo compacto e e-mail lembrado localmente quando apropriado.
+## Banco, migrations e readiness
 
-Não haverá sincronização bidirecional: ela produziria conflitos e duplicação entre duas fontes de verdade.
+Uma instância Prisma por processo. DATABASE_URL configura conexão, TLS e pool. Valor inicial sugerido: connection_limit=5, pool_timeout=10, connect_timeout=5, socket_timeout=10, ajustado ao limite do banco/instâncias.
 
-## Fases seguintes
+Migrations versionadas são aplicadas explicitamente com migrate deploy antes da nova versão. Nenhum comando de criação destrutiva de schema ou seed roda no bootstrap. Seed é manual/idempotente e exclusivamente demonstrativo.
 
-## Autenticação vertical
+/api/health executa SELECT 1 com deadline de dois segundos. Retorna 200 quando pronto e 503 genérico quando o banco falha. É readiness para o Render, não só confirmação de processo vivo.
 
-`AuthService` separa validação, hash, criação/consulta/revogação de sessões e serialização segura do usuário. `PrismaAuthRepository` usa transação no cadastro para criar usuário, credencial, perfil, preferências, workspace e membership OWNER. `InMemoryAuthRepository` existe apenas para testes isolados. O cookie `taskflow_session` é HttpOnly; somente seu hash é persistido.
+## Qualidade e evolução
 
-O router consulta `/auth/me` no primeiro guard e o App inicializa o `AuthStore`. A store de domínio recebe apenas o usuário seguro para criar um contexto local transitório; ela não decide se a sessão é válida. Ao migrar projetos/tarefas, esse bridge deverá ser removido.
+Vitest cobre serviços, autorização, cookies, erros, ambiente e integração PostgreSQL. Playwright smoke exercita HTTPS local com código compilado, navegação, CRUD, cookies e reinício. Testes não entram no build do servidor.
 
-## PostgreSQL local isolado
-
-O Compose publica `5433:5432`, mantendo o serviço PostgreSQL Windows em `5432` completamente fora do fluxo. O volume `taskflow_postgres_data` é persistente. O script `docker/postgres/init/01-create-test-db.sh` cria `taskflow_test` apenas na inicialização do volume e é idempotente; migrations continuam sendo a fonte versionada do schema. Neste ambiente Docker não está instalado, portanto a execução do Compose e a migration real permanecem pendentes.
-
-1. Repositórios Prisma, autenticação, cookies e autorização por workspace.
-2. Workspaces/memberships/convites, incluindo último admin e bloqueio.
-3. Projetos e tarefas com integração incremental da UI.
-4. Perfil e armazenamento externo de imagens.
-5. Complementares, integração E2E e observabilidade.
+Uma separação futura na Vercel exigirá fallback SPA, revisão do uso de VITE_API_URL, CORS, domínio/proxy e cookies. Não faz parte da publicação inicial.

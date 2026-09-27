@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint";
 import vueParser from "vue-eslint-parser";
 
 export default [
-  { ignores: ["dist/**", "node_modules/**", ".next/**", "generated_images/**", "upload/**"] },
+  { ignores: ["dist/**", "dist-server/**", "outputs/**", "node_modules/**", ".next/**", "generated_images/**", "upload/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...pluginVue.configs["flat/recommended"],

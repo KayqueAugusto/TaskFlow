@@ -1,6 +1,6 @@
 import type { ApiFailure, ApiSuccess } from "./data-source.js";
 
-const API_URL=(import.meta.env.VITE_API_URL||"http://localhost:3001/api").replace(/\/$/,"");
+const API_URL=(import.meta.env.PROD?"/api":(import.meta.env.VITE_API_URL||"http://localhost:3001/api")).replace(/\/$/,"");
 export class ApiError extends Error { constructor(public readonly status:number,public readonly code:string,message:string){super(message)} }
 export async function apiRequest<T>(path:string,init:RequestInit={}) {
   const controller=new AbortController(),timeout=window.setTimeout(()=>controller.abort(),10000);
