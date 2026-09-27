@@ -9,5 +9,5 @@
     "types": ["node", "vitest/globals"]
   },
   "include": ["server/**/*.ts", "prisma/**/*.ts", "tests/**/*.ts", "src/env.d.ts"],
-  "exclude": ["tests/auth-ui.test.ts", "tests/logout-router.test.ts", "tests/workspaces-ui.test.ts", "tests/business-ui.test.ts"]
+  "exclude": ["tests/auth-ui.test.ts", "tests/logout-router.test.ts", "tests/workspaces-ui.test.ts", "tests/business-ui.test.ts", "tests/theme.test.ts"]
 }

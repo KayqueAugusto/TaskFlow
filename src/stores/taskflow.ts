@@ -35,7 +35,17 @@ export const useTaskFlowStore=defineStore("taskflow",()=>{
     if(session.value)repository.write(storageKeys.prefs(session.value.accountId),prefs.value);
   };
   watch(prefs,persist,{deep:true});
-  watch(prefs,p=>{document.documentElement.dataset.theme=p.theme.toLowerCase();document.documentElement.classList.toggle("compact-mode",p.compact)},{deep:true,immediate:true});
+  watch([prefs,session],([nextPrefs,nextSession])=>{
+    if(typeof document==="undefined")return;
+    const root=document.documentElement;
+    if(!nextSession){
+      delete root.dataset.theme;
+      root.classList.toggle("compact-mode",false);
+      return;
+    }
+    root.dataset.theme=nextPrefs.theme.toLowerCase();
+    root.classList.toggle("compact-mode",nextPrefs.compact);
+  },{deep:true,immediate:true,flush:"sync"});
 
   function login(email:string,password:string){
     const account=accounts.value.find(a=>a.email.toLowerCase()===email.toLowerCase()&&a.password===password);
